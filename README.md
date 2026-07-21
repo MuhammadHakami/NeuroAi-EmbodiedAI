@@ -69,7 +69,10 @@ Full descriptions, mechanisms and paper links: **[`citation/README.md`](citation
 
 ## Results so far
 
-> **Status: measured checkpoints, not the final table.** Budgets differ per row (shown), and the
+> **Status: PENDING TESTS.** The numbers below are measured checkpoints at the budgets
+> shown, carried over from an earlier configuration. A corrected full run (batch 32,
+> parameter parity across all 13, MotorNet reference row) is in progress and this table
+> will be regenerated from the executed notebook. Treat these as provisional. Budgets differ per row (shown), and the
 > full 100 k-episode run across all 13 is still to come. Numbers are held-out (1.2 / 2.1 kg).
 
 | Model | Budget | Error | Completion |
