@@ -47,3 +47,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Archive of notebooks/save — large, and the directory itself is already ignored
+notebooks/save.zip
+*.zip

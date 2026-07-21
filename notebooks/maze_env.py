@@ -131,6 +131,42 @@ class MazeReach:
         return collision_penalty(pos, self._bar[self._cond], self._msk[self._cond])
 
 
+def make_maze_env(dev, mass_set=None, conditions=None, collide_w=6.0, scale=0.85,
+                  random_cond=True, **kw):
+    """A MotorNet env running the monkey's 108 maze puzzles.
+
+    Subclasses the project's MassReach (which itself subclasses MotorNet's env -- MotorNet is
+    never edited). On reset it draws a maze condition and OVERRIDES the goal with that maze's
+    active target; reward becomes MotorNet's L1 position error MINUS the barrier penalty, so
+    the maze cost enters the one shared objective every model already optimises.
+    """
+    import motor_zoo as mz
+    cfg = extract_configs()
+
+    class _MazeEnv(mz.MassReach, MazeReach):
+        def reset(self, *a, **k):
+            obs, info = super().reset(*a, **k)
+            B = self.states["fingertip"].shape[0]
+            fixed = None if random_cond else np.arange(B) % len(self.cond_idx)
+            self.sample_conditions(B, fixed=fixed)
+            g = self.maze_goal()
+            self.goal = g if self.goal.shape[-1] == g.shape[-1] else \
+                th.cat([g, th.zeros_like(g)], -1)[..., :self.goal.shape[-1]]
+            info["goal"] = self.goal
+            return self.get_obs(), info
+
+        def reward(self, action):
+            ft = self.states["fingertip"]
+            pos = -th.sum(th.abs(self.goal[..., :ft.shape[-1]] - ft), dim=-1, keepdim=True)
+            return pos - self.collide_w * self.maze_collision(ft)[:, None]
+
+    env = _MazeEnv(effector=mz.mn.effector.ReluPointMass24(), max_ep_duration=1.0,
+                   mass_set=mass_set, **kw)
+    env = mz.env_to(env, dev)
+    env._init_maze(cfg, scale=scale, collide_w=collide_w, conditions=conditions)
+    return env
+
+
 def demo():
     """Self-check: geometry loads, collision fires inside a barrier and not outside."""
     cfg = extract_configs()
