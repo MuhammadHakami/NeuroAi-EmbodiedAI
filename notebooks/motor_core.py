@@ -190,10 +190,24 @@ def total_budget(own_episodes, teacher_budget, consumes_demonstrator):
 
 if __name__ == "__main__":
     # self-check: the shared objective and its signal are well-formed and rule-agnostic
-    b, r = 8, 3
-    ctx = StepCtx(obs=th.zeros(b, 12), raw=th.zeros(b, r), target=th.ones(b, r),
+    b = 8
+    goal = th.tensor([[3.0, 4.0]]).repeat(b, 1)      # 3-4-5 triangle: |err|_1 = 7 per row
+    ctx = StepCtx(obs=th.zeros(b, 12), raw=th.zeros(b, 4), cmd=th.zeros(b, 3),
+                  target=goal, pos=th.zeros(b, 2), vel=th.zeros(b, 2),
                   aux=None, state=None, t=0, n=100, batch=b)
-    assert th.allclose(ctx.err, th.ones(b, r)), "err must be target - raw"
-    assert abs(ctx.loss().item() - 1.0) < 1e-6, "shared loss must be mean squared err"
+    assert th.allclose(ctx.err, goal), "err must be goal - fingertip"
+    # MotorNet's l1: mean over batch of the SUM over xy -- not a mean over xy
+    assert abs(ctx.loss().item() - 7.0) < 1e-6, f"expected L1 7.0, got {ctx.loss().item()}"
+
+    # with no learner attached, err_local falls through to the shared error untouched
+    assert th.allclose(ctx.err_local, ctx.err), "err_local must default to err"
+
+    # a learner supplying project_error gets its OWN pathway, and only that
+    class _FakeRule:
+        def project_error(self, c): return c.err @ th.ones(2, 3)
+    ctx.learner = _FakeRule()
+    assert ctx.err_local.shape == (b, 3), "project_error must map into the readout's space"
+    assert abs(ctx.loss().item() - 7.0) < 1e-6, "the OBJECTIVE must not change with the rule"
+
     assert total_budget(100, 1000, True) == 1100 and total_budget(100, 1000, False) == 100
-    print("motor_core self-check OK: one objective, one signal, budget accounting honest")
+    print("motor_core self-check OK: MotorNet L1 objective, per-rule pathway, honest budgets")
