@@ -1,5 +1,8 @@
 # NeuroAI Embodied-AI Capstone — how does a *brain-like* learning rule control an arm?
 
+*A NeuroAI project investigating biologically inspired learning rules for embodied motor
+control and their similarity to biological neural representations.*
+
 Thirteen controllers learn the **same** reaching task, on the **same** simulated muscles, with the
 **same** objective and the **same** parameter budget. The only thing that changes is **how each one
 assigns credit** — backprop, an eligibility trace, a dendritic plateau, a dopamine burst. Then we
@@ -159,6 +162,13 @@ notebooks/
   motor_zoo.py           plant, heads, gradient & off-policy learners
   plausible_learners.py  the six local biologically-plausible rules
   arch_detailed.py       per-model architecture diagrams
+
+  # from the NeuroAgents upstream (nbrav) -- primate Area2_Bump track
+  area2-explore.ipynb      Area2_Bump primate data exploration
+  rnn-data-prep.ipynb      RNN-ready H5 with train/val splits + decoder lag pairs
+  rnn-training.ipynb       three GRU objectives on Area2_Bump motor data
+  comparison-metrics.ipynb GRU hidden dynamics vs primate area 2
+  motornet_train.ipynb     MotorNet backprop RNN
 citation/
   README.md              every model described, with paper links
   references.bib         BibTeX
@@ -185,6 +195,11 @@ Not in git, by design:
 ---
 
 ## Credits
+
+Merged with **[nbrav/NeuroAgents](https://github.com/nbrav/NeuroAgents)** (upstream), which
+contributes the primate Area2_Bump track: data exploration, RNN data prep, GRU training against
+Area2 motor data, and GRU-vs-area-2 comparison metrics. That work targets the same question this
+benchmark asks and feeds directly into roadmap step 3.
 
 Built on **MotorNet** (Codol et al., *eLife* 2024). Every model, dataset and metric is cited to its
 source in [`citation/README.md`](citation/README.md).
