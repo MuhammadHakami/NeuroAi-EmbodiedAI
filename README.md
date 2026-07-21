@@ -99,11 +99,11 @@ Every notebook opens in Colab and installs itself from its **first cell** — GP
 
 | Notebook | What it does | |
 |---|---|---|
-| `4-train-net.ipynb` | trains & scores all 13 on the 2-D task | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-train-net.ipynb) |
-| `4-analysis-net.ipynb` | microcircuit analysis of the trained models | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-analysis-net.ipynb) |
-| `4-monkey-net.ipynb` | links models to monkey S1/M1 + human MEG *(⚠ still on the previous imitation objective — being ported, roadmap step 3)* | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-monkey-net.ipynb) |
+| `4-train-net.ipynb` | trains & scores all 13 on the 2-D task | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/4-train-net.ipynb) |
+| `4-analysis-net.ipynb` | microcircuit analysis of the trained models | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/4-analysis-net.ipynb) |
+| `4-monkey-net.ipynb` | links models to monkey S1/M1 + human MEG *(⚠ still on the previous imitation objective — being ported, roadmap step 3)* | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/4-monkey-net.ipynb) |
 
-> Replace `OWNER/REPO` in the badge links once the repo is pushed.
+
 
 ### Local
 
