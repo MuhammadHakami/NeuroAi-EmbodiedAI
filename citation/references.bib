@@ -1,0 +1,207 @@
+% ============================================================================
+% References for the NeuroAI Embodied-AI capstone
+% (4-train-net.ipynb, 4-monkey-net.ipynb, 4-analysis-net.ipynb, 4-tuning-net.ipynb)
+% Grouped: simulator · neural datasets & tools · gradient/deep-RL learners ·
+%          biologically-plausible learners · model<->brain metrics · background.
+% DOIs/arXiv IDs are given where verified; a few community artifacts have no DOI.
+% ============================================================================
+
+% ----------------------------- simulator / plant ---------------------------
+@article{codol2024motornet,
+  title   = {MotorNet, a Python toolbox for controlling differentiable biomechanical effectors with artificial neural networks},
+  author  = {Codol, Olivier and Michaels, Jonathan A. and Kashefi, Mehrdad and Pruszynski, J. Andrew and Gribble, Paul L.},
+  journal = {eLife}, volume = {12}, pages = {e88591}, year = {2024}, doi = {10.7554/eLife.88591}}
+
+@article{hogan1984impedance,
+  title   = {Adaptive control of mechanical impedance by coactivation of antagonist muscles},
+  author  = {Hogan, Neville}, journal = {IEEE Transactions on Automatic Control},
+  volume = {29}, number = {8}, pages = {681--690}, year = {1984}, doi = {10.1109/TAC.1984.1103644}}
+
+% ----------------------------- neural datasets & tools ----------------------
+@article{chowdhury2020area2,
+  title   = {Area 2 of primary somatosensory cortex encodes kinematics of the whole arm},
+  author  = {Chowdhury, Raeed H. and Glaser, Joshua I. and Miller, Lee E.},
+  journal = {eLife}, volume = {9}, pages = {e48198}, year = {2020}, doi = {10.7554/eLife.48198},
+  note    = {Area2\_Bump; DANDI 000127}}
+
+@inproceedings{pei2021nlb,
+  title   = {Neural Latents Benchmark '21: Evaluating latent variable models of neural population activity},
+  author  = {Pei, Felix and Ye, Joel and Zoltowski, David and others},
+  booktitle = {NeurIPS Datasets and Benchmarks}, year = {2021}, eprint = {2109.04463},
+  note    = {nlb\_tools; MC\_Maze DANDI 000128, MC\_RTT 000129}}
+
+@article{churchland2012neural,
+  title   = {Neural population dynamics during reaching},
+  author  = {Churchland, Mark M. and Cunningham, John P. and Kaufman, Matthew T. and Foster, Justin D. and Nuyujukian, Paul and Ryu, Stephen I. and Shenoy, Krishna V.},
+  journal = {Nature}, volume = {487}, number = {7405}, pages = {51--56}, year = {2012}, doi = {10.1038/nature11129},
+  note    = {source of the maze / center-out reaching used by MC\_Maze}}
+
+@article{meg2023centerout,
+  title   = {A magnetoencephalography dataset during three-dimensional reaching movements for brain-computer interfaces},
+  author  = {{Scientific Data authors}},
+  journal = {Scientific Data}, volume = {10}, year = {2023}, doi = {10.1038/s41597-023-02454-y},
+  note    = {human MEG 4-direction center-out; figshare collection 6431021}}
+
+@misc{yinfei2025humanbmi,
+  title   = {Data associated to ``Duration-modulated neural population dynamics in humans during BMI control''},
+  author  = {Yin Fei and others}, year = {2025}, howpublished = {Zenodo}, doi = {10.5281/zenodo.19445138},
+  note    = {human intracortical M1, 8-direction center-out cursor BMI (N1, N2)}}
+
+@misc{dandi,
+  title = {DANDI: Distributed Archives for Neurophysiology Data Integration}, howpublished = {\url{https://dandiarchive.org}}, note = {000127 Area2\_Bump, 000128 MC\_Maze}}
+
+% ----------------------------- gradient / deep-RL learners ------------------
+@article{cho2014gru,
+  title  = {Learning phrase representations using RNN encoder-decoder for statistical machine translation},
+  author = {Cho, Kyunghyun and van Merri{\"e}nboer, Bart and Gulcehre, Caglar and others},
+  journal = {arXiv}, year = {2014}, eprint = {1406.1078}, note = {GRU}}
+
+@article{werbos1990bptt,
+  title = {Backpropagation through time: what it does and how to do it},
+  author = {Werbos, Paul J.}, journal = {Proceedings of the IEEE}, volume = {78}, number = {10}, pages = {1550--1560}, year = {1990}, doi = {10.1109/5.58337}}
+
+@inproceedings{xu2022shac,
+  title = {Accelerated policy learning with parallel differentiable simulation},
+  author = {Xu, Jie and Makoviychuk, Viktor and Narang, Yashraj and Ramos, Fabio and Matusik, Wojciech and Garg, Animesh and Macklin, Miles},
+  booktitle = {ICLR}, year = {2022}, eprint = {2204.07137}, note = {SHAC}}
+
+@inproceedings{haarnoja2018sac,
+  title = {Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor},
+  author = {Haarnoja, Tuomas and Zhou, Aurick and Abbeel, Pieter and Levine, Sergey},
+  booktitle = {ICML}, year = {2018}, eprint = {1801.01290}}
+
+@inproceedings{ball2023rlpd,
+  title = {Efficient online reinforcement learning with offline data},
+  author = {Ball, Philip J. and Smith, Laura and Kostrikov, Ilya and Levine, Sergey},
+  booktitle = {ICML}, year = {2023}, eprint = {2302.02948}, note = {RLPD; demonstration-bootstrapped RL}}
+
+@inproceedings{fujimoto2018td3,
+  title = {Addressing function approximation error in actor-critic methods},
+  author = {Fujimoto, Scott and van Hoof, Herke and Meger, David},
+  booktitle = {ICML}, year = {2018}, eprint = {1802.09477}, note = {TD3}}
+
+@inproceedings{fujimoto2021td3bc,
+  title = {A minimalist approach to offline reinforcement learning},
+  author = {Fujimoto, Scott and Gu, Shixiang Shane},
+  booktitle = {NeurIPS}, year = {2021}, eprint = {2106.06860}, note = {TD3+BC}}
+
+@article{lee2024simba,
+  title = {SimBa: Simplicity bias for scaling up parameters in deep reinforcement learning},
+  author = {Lee, Hojoon and others}, journal = {arXiv}, year = {2024}, eprint = {2410.09754}}
+
+% ----------------------------- biologically-plausible learners --------------
+@article{bellec2020eprop,
+  title = {A solution to the learning dilemma for recurrent networks of spiking neurons},
+  author = {Bellec, Guillaume and Scherr, Franz and Subramoney, Anand and Hajek, Elias and Salaj, Darjan and Legenstein, Robert and Maass, Wolfgang},
+  journal = {Nature Communications}, volume = {11}, pages = {3625}, year = {2020}, doi = {10.1038/s41467-020-17236-y}, note = {e-prop}}
+
+@article{murray2019rflo,
+  title = {Local online learning in recurrent networks with random feedback},
+  author = {Murray, James M.}, journal = {eLife}, volume = {8}, pages = {e43299}, year = {2019}, doi = {10.7554/eLife.43299}, note = {RFLO; real-time recurrent learning}}
+
+@article{williams1989rtrl,
+  title = {A learning algorithm for continually running fully recurrent neural networks},
+  author = {Williams, Ronald J. and Zipser, David}, journal = {Neural Computation}, volume = {1}, number = {2}, pages = {270--280}, year = {1989}, doi = {10.1162/neco.1989.1.2.270}, note = {RTRL}}
+
+@article{bittner2017btsp,
+  title = {Behavioral time scale synaptic plasticity underlies CA1 place fields},
+  author = {Bittner, Katie C. and Milstein, Aaron D. and Grienberger, Christine and Romani, Sandro and Magee, Jeffrey C.},
+  journal = {Science}, volume = {357}, number = {6355}, pages = {1033--1036}, year = {2017}, doi = {10.1126/science.aan3846}, note = {BTSP}}
+
+@article{simos2025kinesis,
+  title = {KINESIS: Reinforcement learning of physiologically plausible musculoskeletal control},
+  author = {Simos, Merkourios and Chiappa, Alberto Silvio and Mathis, Alexander},
+  journal = {arXiv}, year = {2025}, eprint = {2503.14637}, note = {KINESIS; morphological computation}}
+
+@inproceedings{wochner2023embodiment,
+  title = {Learning with muscles: Benefits for data-efficiency and robustness in anthropomorphic tasks},
+  author = {Wochner, Isabell and Schumacher, Pierre and Martius, Georg and Buchler, Daniel and Schmitt, Syn and Haeufle, Daniel},
+  booktitle = {CoRL}, year = {2023}, note = {morphological computation / muscle embodiment}}
+
+@article{izhikevich2007rstdp,
+  title = {Solving the distal reward problem through linkage of STDP and dopamine signaling},
+  author = {Izhikevich, Eugene M.}, journal = {Cerebral Cortex}, volume = {17}, number = {10}, pages = {2443--2452}, year = {2007}, doi = {10.1093/cercor/bhl152}, note = {reward-modulated STDP}}
+
+@article{rao1999predcoding,
+  title = {Predictive coding in the visual cortex: a functional interpretation of some extra-classical receptive-field effects},
+  author = {Rao, Rajesh P. N. and Ballard, Dana H.}, journal = {Nature Neuroscience}, volume = {2}, number = {1}, pages = {79--87}, year = {1999}, doi = {10.1038/4580}}
+
+@article{friston2010freeenergy,
+  title = {The free-energy principle: a unified brain theory?},
+  author = {Friston, Karl}, journal = {Nature Reviews Neuroscience}, volume = {11}, number = {2}, pages = {127--138}, year = {2010}, doi = {10.1038/nrn2787}, note = {active inference}}
+
+@article{kusmierz2017threefactor,
+  title = {Learning with three factors: modulating Hebbian plasticity with errors},
+  author = {Ku{\'s}mierz, {\L}ukasz and Isomura, Takuya and Toyoizumi, Taro}, journal = {Current Opinion in Neurobiology}, volume = {46}, pages = {170--177}, year = {2017}, doi = {10.1016/j.conb.2017.08.020}}
+
+@article{fremaux2016threefactor,
+  title = {Neuromodulated spike-timing-dependent plasticity, and theory of three-factor learning rules},
+  author = {Fr{\'e}maux, Nicolas and Gerstner, Wulfram}, journal = {Frontiers in Neural Circuits}, volume = {9}, pages = {85}, year = {2016}, doi = {10.3389/fncir.2015.00085}}
+
+@article{maass2002lsm,
+  title = {Real-time computing without stable states: A new framework for neural computation based on perturbations},
+  author = {Maass, Wolfgang and Natschl{\"a}ger, Thomas and Markram, Henry}, journal = {Neural Computation}, volume = {14}, number = {11}, pages = {2531--2560}, year = {2002}, doi = {10.1162/089976602760407955}, note = {liquid state machine / reservoir}}
+
+@techreport{jaeger2001esn,
+  title = {The ``echo state'' approach to analysing and training recurrent neural networks},
+  author = {Jaeger, Herbert}, institution = {GMD Report 148}, year = {2001}, note = {echo-state networks / reservoir computing}}
+
+@article{hu2021lora,
+  title = {LoRA: Low-rank adaptation of large language models},
+  author = {Hu, Edward J. and Shen, Yelong and Wallis, Phillip and Allen-Zhu, Zeyuan and Li, Yuanzhi and Wang, Shean and Wang, Lu and Chen, Weizhu},
+  journal = {arXiv}, year = {2021}, eprint = {2106.09685}, note = {Dendritron memory packs}}
+
+% ----------------------------- model <-> brain metrics ----------------------
+@article{schrimpf2020brainscore,
+  title = {Brain-Score: Which artificial neural network for object recognition is most brain-like?},
+  author = {Schrimpf, Martin and Kubilius, Jonas and Hong, Ha and Majaj, Najib J. and others},
+  journal = {bioRxiv}, year = {2020}, doi = {10.1101/407007}, note = {neural predictivity leaderboard}}
+
+@article{marinvargas2024proprioception,
+  title = {Task-driven neural network models predict neural dynamics of proprioception},
+  author = {Marin Vargas, Alessandro and Bisi, Axel and Chiappa, Alberto S. and Versteeg, Chris and Miller, Lee E. and Mathis, Alexander},
+  journal = {Cell}, volume = {187}, number = {7}, pages = {1745--1761}, year = {2024}, doi = {10.1016/j.cell.2024.02.036}, note = {field-standard model<->S1 comparison}}
+
+@inproceedings{kornblith2019cka,
+  title = {Similarity of neural network representations revisited},
+  author = {Kornblith, Simon and Norouzi, Mohammad and Lee, Honglak and Hinton, Geoffrey},
+  booktitle = {ICML}, year = {2019}, eprint = {1905.00414}, note = {CKA}}
+
+@inproceedings{williams2021shape,
+  title = {Generalized shape metrics on neural representations},
+  author = {Williams, Alex H. and Kunz, Erin and Kornblith, Simon and Linderman, Scott W.},
+  booktitle = {NeurIPS}, year = {2021}, eprint = {2110.14739}, note = {netrep; Procrustes / angular shape distance}}
+
+@article{kriegeskorte2008rsa,
+  title = {Representational similarity analysis -- connecting the branches of systems neuroscience},
+  author = {Kriegeskorte, Nikolaus and Mur, Marieke and Bandettini, Peter}, journal = {Frontiers in Systems Neuroscience}, volume = {2}, pages = {4}, year = {2008}, doi = {10.3389/neuro.06.004.2008}}
+
+@article{nili2014rsatoolbox,
+  title = {A toolbox for representational similarity analysis},
+  author = {Nili, Hamed and Wingfield, Cai and Walther, Alexander and Su, Li and Marslen-Wilson, William and Kriegeskorte, Nikolaus},
+  journal = {PLoS Computational Biology}, volume = {10}, number = {4}, pages = {e1003553}, year = {2014}, doi = {10.1371/journal.pcbi.1003553}, note = {rsatoolbox}}
+
+@inproceedings{khosla2024softmatch,
+  title = {Soft matching distance: A metric on neural representations that captures single-neuron tuning},
+  author = {Khosla, Meenakshi and Williams, Alex H.},
+  booktitle = {NeurIPS}, year = {2024}, eprint = {2311.09466}, note = {single-neuron-identity metric}}
+
+@article{georgopoulos1982tuning,
+  title = {On the relations between the direction of two-dimensional arm movements and cell discharge in primate motor cortex},
+  author = {Georgopoulos, Apostolos P. and Kalaska, John F. and Caminiti, Roberto and Massey, Joe T.},
+  journal = {Journal of Neuroscience}, volume = {2}, number = {11}, pages = {1527--1537}, year = {1982}, doi = {10.1523/JNEUROSCI.02-11-01527.1982}, note = {cosine directional tuning}}
+
+@article{huh2024platonic,
+  title = {The Platonic Representation Hypothesis},
+  author = {Huh, Minyoung and Cheung, Brian and Wang, Tongzhou and Isola, Phillip},
+  journal = {arXiv}, year = {2024}, eprint = {2405.07987}, note = {cross-system representational convergence}}
+
+% ----------------------------- background -----------------------------------
+@incollection{mccloskey1989forgetting,
+  title = {Catastrophic interference in connectionist networks: The sequential learning problem},
+  author = {McCloskey, Michael and Cohen, Neal J.}, booktitle = {Psychology of Learning and Motivation}, volume = {24}, pages = {109--165}, year = {1989}, doi = {10.1016/S0079-7421(08)60536-8}}
+
+@article{lillicrap2020backprop,
+  title = {Backpropagation and the brain},
+  author = {Lillicrap, Timothy P. and Santoro, Adam and Marris, Luke and Akerman, Colin J. and Hinton, Geoffrey},
+  journal = {Nature Reviews Neuroscience}, volume = {21}, pages = {335--346}, year = {2020}, doi = {10.1038/s41583-020-0277-3}, note = {biological plausibility of credit assignment}}

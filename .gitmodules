@@ -1,0 +1,6 @@
+[submodule "MotorNet"]
+	path = MotorNet
+	url = https://github.com/motornet-org/MotorNet.git
+[submodule "nlb_tools"]
+	path = nlb_tools
+	url = https://github.com/neurallatents/nlb_tools.git

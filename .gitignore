@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Large artefacts. Trained weights and datasets live in Google Drive, not git.
+# NOTE: .gitignore has NO inline comments -- a trailing "# ..." becomes part of
+# the pattern and silently matches nothing. Keep comments on their own lines.
+# ---------------------------------------------------------------------------
+
+# 14 GB - DANDI 000127/000128, MEG, monkey spikes
+data/
+# 801 MB - monkey-fit checkpoints
+save_monkey/
+# 475 MB - trained model zoo + episode videos
+notebooks/save/
+notebooks/models/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.nwb
+*.h5
+*.hdf5
+
+# Raw video captures. The README GIF under docs/ IS committed.
+*.mp4
+*.webm
+*.avi
+!docs/*.gif
+
+# ---------------------------------------------------------------------------
+# Environments / caches
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
+# Local / editor / OS
+# ---------------------------------------------------------------------------
+.claude_internal/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
