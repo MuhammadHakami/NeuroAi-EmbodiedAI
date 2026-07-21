@@ -499,7 +499,10 @@ def muscle_head(obs, raw4):
     return th.sigmoid(raw4[:, :4])
 
 # reservoir config for the plausible rules (won the sweep in 4-tuning-net.ipynb)
-RES_NR, RES_RHO, RES_A, RES_SIN, RES_LR = 2048, 1.1, 0.5, 1.0, 0.05
+# 4096 to MATCH plausible_learners.RES_NR. At 2048 Dendritron's plastic readout was
+# 3*(2048+12)+3 = 6,183 -- HALF the 12,327 every other local rule gets, which quietly broke
+# the equal-parameter premise the whole benchmark rests on.
+RES_NR, RES_RHO, RES_A, RES_SIN, RES_LR = 4096, 1.1, 0.5, 1.0, 0.05
 
 # ===== from t50_mass.py =============================================
 # ==============================================================================
@@ -1362,6 +1365,71 @@ class Hebb3(Reservoir):
 #   * an autonomous router that probes each pack and binds to the best return, no label.
 # The base readout trains on the first skill then freezes; later skills only add packs.
 # ==============================================================================
+
+
+# ---------------------------------------------------------------------------------------------
+_POLICY_NAMES = {"gru", "fc", "head", "W", "b", "Wmot", "W0", "packsA", "packsB", "log_std"}
+
+def updates_per_episode(L, env):
+    """How many WEIGHT UPDATES this rule takes per episode of experience.
+
+    This is why SHAC scores 100% while BPTT-GRU -- same architecture, same parameters, same
+    objective -- scores 74%. SHAC cuts the gradient at a 16-step horizon, so it takes 100/16 =
+    6.25 optimiser steps per episode against BPTT-GRU's 1. It is not a better gradient, it is
+    ~6x more of them on the same data. The off-policy rules are further out still (upd updates
+    per env STEP), and the local rules update every timestep.
+
+    Episodes (environment experience) are what the budget holds equal, because that is the
+    scarce resource. The update schedule is part of each algorithm -- so it is REPORTED rather
+    than clamped, and the table shows it next to the score.
+    """
+    n = int(env.max_ep_duration / env.dt)
+    if getattr(L, "upd", None):                 return float(n * L.upd)
+    hz = getattr(L, "bptt_horizon", None)
+    if hz:                                      return n / float(hz)
+    if hasattr(L, "packsA") or hasattr(L, "Wr"): return float(n)
+    return 1.0
+
+
+def count_params(L):
+    """(policy, auxiliary) parameter counts for the scoreboard.
+
+    Two traps this exists to avoid:
+      * the six local rules hold their PLASTIC readout in `register_buffer`, not `nn.Parameter`
+        (they are updated by hand, not by an optimiser), so `sum(p.numel() for p in
+        L.parameters())` reports 0 for every one of them -- which is what the params column
+        used to print.
+      * critics, target networks and the FIXED reservoir are credit-assignment machinery, not
+        the controller. Folding them into one number makes a 12.3k policy look like 1.1M.
+
+    `policy` is the network that produces behaviour -- the quantity held equal across all
+    models. `auxiliary` is everything else, reported separately.
+    """
+    policy = aux = 0
+    for n, t in list(L.named_parameters()) + list(L.named_buffers()):
+        top = n.split(".")[0]
+        if top in _POLICY_NAMES:
+            policy += t.numel()
+        else:
+            aux += t.numel()
+    return policy, aux
+
+
+class MotorNetRef(MuscleGRU):
+    """MotorNet's OWN reference policy, added AS IS from examples/4-train-net.ipynb:
+    GRU(obs, 32) -> Linear(32, n_muscles) -> sigmoid, fc.bias = -5, Adam(1e-3), clip 1.0.
+
+    Deliberately NOT resized to the shared 12.3k budget -- it is the upstream baseline the
+    whole benchmark is calibrated against, so it is reported with its published width (32
+    hidden = 4,548 params) and flagged as unmatched rather than quietly rescaled.
+    """
+    name = "MotorNet reference policy (hidden 32, as published)"
+    cite = "Codol+24 MotorNet, examples/4-train-net.ipynb (verbatim)"
+    wins = "the upstream reference implementation"
+    def __init__(self, env, hidden=32, lr=1e-3):
+        super().__init__(env, hidden=hidden, lr=lr)
+
+# ---------------------------------------------------------------------------------------------
 
 class Dendritron(nn.Module, Learner):
     name = "Dendritron (frozen experts + router)"

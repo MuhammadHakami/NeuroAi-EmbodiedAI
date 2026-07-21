@@ -355,7 +355,9 @@ class PredictiveCoding(_ResBase):
     name = "Predictive coding (hierarchical error-unit inference)"
     cite = "Rao&Ballard 99 (Nat.Neurosci.); Friston active inference; morphological head"
     wins = "robust asymptotic control (inference corrects deviations online)"
-    def __init__(self, env, teacher=None, Nrep=2048, lr=0.03, n_infer=5, seed=0, **kw):
+    def __init__(self, env, teacher=None, Nrep=RES_NR, lr=0.03, n_infer=5, seed=0, **kw):
+        # Nrep tracks RES_NR so the motor readout is 3*(Nrep+O)+3 = 12,327 -- the same plastic
+        # budget as every sibling rule. Hard-coded 2048 silently gave it half.
         super().__init__(env, teacher, seed=seed, **kw); self.Nrep, self.lr, self.n_infer = Nrep, lr, n_infer
         g = th.Generator(device="cpu").manual_seed(seed + 7)
         self.register_buffer("Wenc", (th.randn(Nrep, self.Nr, generator=g) / math.sqrt(self.Nr)).to(self.dev))
