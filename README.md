@@ -101,7 +101,7 @@ Every notebook opens in Colab and installs itself from its **first cell** — GP
 |---|---|---|
 | `4-train-net.ipynb` | trains & scores all 13 on the 2-D task | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-train-net.ipynb) |
 | `4-analysis-net.ipynb` | microcircuit analysis of the trained models | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-analysis-net.ipynb) |
-| `4-monkey-net.ipynb` | links models to monkey S1/M1 + human MEG | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-monkey-net.ipynb) |
+| `4-monkey-net.ipynb` | links models to monkey S1/M1 + human MEG *(⚠ still on the previous imitation objective — being ported, roadmap step 3)* | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/notebooks/4-monkey-net.ipynb) |
 
 > Replace `OWNER/REPO` in the badge links once the repo is pushed.
 
@@ -151,7 +151,7 @@ change of species.
 notebooks/
   4-train-net.ipynb      the 13-model benchmark (start here)
   4-analysis-net.ipynb   microcircuit / representational analysis
-  4-monkey-net.ipynb     model ↔ brain comparison
+  4-monkey-net.ipynb     model <-> brain comparison  (NOT yet on the shared objective)
   motor_core.py          ONE training loop + ONE objective, shared by all 13
   motor_zoo.py           plant, heads, gradient & off-policy learners
   plausible_learners.py  the six local biologically-plausible rules

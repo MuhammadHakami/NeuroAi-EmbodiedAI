@@ -1368,7 +1368,7 @@ class Dendritron(nn.Module, Learner):
     cite = "Dendritron v0.4.2 Colab; LoRA Hu+22 (arXiv:2106.09685); reservoir + KINESIS head"
     kind = "local-plausible"
     wins = "continual learning (frozen experts, no forgetting)"
-    def __init__(self, env, teacher, Nr=RES_NR, rho=RES_RHO, a=RES_A, sin=RES_SIN,
+    def __init__(self, env, teacher=None, Nr=RES_NR, rho=RES_RHO, a=RES_A, sin=RES_SIN,
                  lr=RES_LR, rank=16, lam=1e-4, seed=0):
         super().__init__(); self.dev = env.device; self.teacher = teacher; self.a = a; self.lr = lr; self.lam = lam
         self.Nr = Nr; self.O = env.observation_space.shape[0]; self.M = Nr + self.O; self.rank = rank
@@ -1412,7 +1412,13 @@ class Dendritron(nn.Module, Learner):
             while eps < budget:
                 h = self.init_state(batch); obs, info = env.reset(options={"batch_size": batch})
                 for t in range(n):
-                    h, z = self._step(obs, h); out = self._raw(z, c); err = self.teacher.raw_from(obs, t) - out
+                    h, z = self._step(obs, h); out = self._raw(z, c)
+                    # SHARED objective, identical to the six rules in plausible_learners: the
+                    # MotorNet task error routed through the fixed spinal PD reflex. No teacher.
+                    ft = env.states["fingertip"]; vel = env.states["cartesian"][..., 2:4]
+                    e_task = env.goal[..., :ft.shape[-1]] - ft
+                    tgt = th.cat([_pl.REFLEX_KP * e_task - _pl.REFLEX_KD * vel, out[:, 2:]], -1)
+                    err = tgt - out
                     if not self.base_frozen:
                         self.W0 += self.lr / n * ((err[:, :, None] * z[:, None, :]).mean(0) - self.lam * self.W0)
                     else:                                                            # LoRA pack, local three-factor
