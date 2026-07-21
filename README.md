@@ -107,6 +107,7 @@ Every notebook opens in Colab and installs itself from its **first cell** — GP
 |---|---|---|
 | `4-train-net.ipynb` | trains & scores all 13 on the 2-D task | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/4-train-net.ipynb) |
 | `4-analysis-net.ipynb` | microcircuit analysis of the trained models | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/4-analysis-net.ipynb) |
+| `qualitative_analysis.ipynb` | **start here** — watch any trained model reach (no training needed) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/qualitative_analysis.ipynb) |
 | `4-monkey-net.ipynb` | links models to monkey S1/M1 + human MEG *(⚠ still on the previous imitation objective — being ported, roadmap step 3)* | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MuhammadHakami/NeuroAi-EmbodiedAI/blob/main/notebooks/4-monkey-net.ipynb) |
 
 
@@ -127,6 +128,38 @@ pip install -e MotorNet          # pinned to v0.3.0
 
 **Trained weights and datasets are not in git** (14 GB of neural recordings, 475 MB of
 checkpoints). They live in Google Drive — see [Data](#data-and-weights).
+
+
+### Running the tests
+
+Each module ships one runnable self-check — no framework, no fixtures. From `notebooks/`:
+
+```bash
+python motor_core.py     # the shared objective + budget accounting are well-formed
+python maze_env.py       # 108 MC_Maze puzzles load; collision fires inside a barrier, not outside
+python weights.py        # checkpoint discovery is honest about what is on disk
+```
+
+Then the notebooks themselves. The quickest end-to-end check needs no training — it loads a
+trained controller and scores it on the held-out ball weights:
+
+```bash
+jupyter nbconvert --to notebook --execute qualitative_analysis.ipynb --stdout >/dev/null
+```
+
+`qualitative_analysis.ipynb` is a single cell: it fetches the model zoo from Google Drive if
+`save/models/` is empty, then runs any checkpoint you name.
+
+```python
+run_model("save/models/kinesis.pt")                        # 4 runs at 1.0 kg, with video
+run_model("save/models/shac.pt", n_runs=6, ball_weight=2.1)          # a single weight
+run_model("save/models/eprop.pt", ball_weight=[0.5, 1.2, 2.1, 2.5])  # a list of weights
+run_model("save/models/btsp.pt", render=False)                       # metrics only
+run_all()                                                            # every checkpoint, one table
+```
+
+To retrain from scratch (~40 min on a GPU), run `4-train-net.ipynb`; `TN_BUDGET` sets the
+episode budget per model.
 
 ---
 
