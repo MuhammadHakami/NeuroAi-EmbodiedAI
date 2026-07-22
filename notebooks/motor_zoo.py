@@ -982,7 +982,8 @@ class SAC(nn.Module, Learner):
 # ==============================================================================
 
 class SHAC(nn.Module, Learner):
-    name, cite, kind, wins = "SHAC (MotorNet muscle head)", "Xu+22 SHAC (short-horizon actor-critic)", "global-gradient", ""
+    name, cite, kind, wins = "SHAC-style short-horizon gradient (MotorNet muscle head)", \
+        "Xu+22 SHAC: 16-step truncated differentiable-sim BPTT (value critic dropped for equal-capacity parity)", "global-gradient", ""
     RAW = 4                                     # non-plausible: direct 4-muscle head (no morphological advantage)
     HEAD = staticmethod(muscle_head)
     def __init__(self, env, hidden=FAIR_HIDDEN, horizon=50, gamma=0.99, lam=0.95, lr_a=1e-3, lr_c=5e-4, tau=0.2):

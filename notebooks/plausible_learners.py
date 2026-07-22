@@ -202,39 +202,46 @@ class EProp(_ResBase):
 
 
 # =============================================================================
-# 2. RTRRL / RFLO  (Murray 2019, eLife)  -- real-time, INSTANTANEOUS, random feedback
+# 2. RTRRL / RFLO  (Murray 2019, eLife)  -- real-time recurrent learning, random feedback
 # -----------------------------------------------------------------------------
-# Random-Feedback Local Online learning. No eligibility trace and no adaptation: the update
-# is INSTANTANEOUS (the RTRL truncation keeps only the immediate presynaptic term), and the
-# readout error is projected back through a fixed RANDOM FEEDBACK matrix B (feedback
-# alignment) -- the RFLO signature. Real-time, forward-in-time, no BPTT, no stored trajectory.
-# Distinct from e-prop: plain (non-adaptive) units, no temporal trace, explicit random
-# feedback pathway.
+# Random-Feedback Local Online learning. RFLO's two signatures, both implemented here on the
+# plastic readout (the reservoir is the fixed shared crutch, so the readout is the plastic layer):
+#   (1) a LEAKY eligibility trace of presynaptic activity  p <- (1-dt/tau) p + (dt/tau) aux
+#       -- Murray's forward, real-time credit trace (NOT instantaneous; eq. 6 is a leaky integrator),
+#   (2) the readout error routed through a FIXED RANDOM FEEDBACK matrix B (feedback alignment,
+#       no weight transport) -- the RFLO signature.
+# Real-time, forward-in-time, no BPTT, no stored trajectory. Distinct from e-prop (no ALIF
+# pseudo-derivative gate) and from a plain delta rule (which has neither the trace nor B).
 # =============================================================================
 class RTRRL(_ResBase):
-    name = "RTRRL / RFLO (real-time local · random feedback)"
-    cite = "Murray 19 RFLO (eLife); feedback alignment, instantaneous; morphological head"
-    wins = "online adaptation (real-time, no trace, no BPTT)"
-    def __init__(self, env, teacher=None, lr=0.01, seed=1, **kw):
-        super().__init__(env, teacher, seed=seed, **kw); self.lr = lr
+    name = "RTRRL / RFLO (real-time recurrent · leaky eligibility + random feedback)"
+    cite = "Murray 19 RFLO (eLife); leaky eligibility trace + feedback alignment; morphological head"
+    wins = "online adaptation (real-time forward eligibility, no BPTT)"
+    def __init__(self, env, teacher=None, lr=0.01, tau_e=0.1, seed=1, **kw):
+        super().__init__(env, teacher, seed=seed, **kw); self.lr, self.tau_e = lr, tau_e
         g = th.Generator(device="cpu").manual_seed(seed + 5)
-        # random feedback = identity + a small random rotation (feedback alignment, but mild enough
-        # that the linear readout still converges). This is RFLO's fixed random credit pathway.
+        # RFLO's fixed RANDOM FEEDBACK: the readout error is projected through B (no weight transport)
+        # to assign credit -- feedback alignment (Murray 2019). Identity + a small rotation keeps the
+        # misalignment mild enough that the linear readout still converges.
         self.register_buffer("B", (th.eye(self.R) + 0.1 * th.randn(self.R, self.R, generator=g)).to(self.dev))
+    def on_episode_start(self, B):
+        self._elig = th.zeros(B, self.Nr + self.O, device=self.dev)
+        self._decay = 1 - self.dt / self.tau_e
     def forward(self, obs, h):
         h, z = self._feat(obs, h)
         return z @ self.W.t() + self.b, h, z
 
     @th.no_grad()
     def on_step(self, c):
-        """RFLO (Murray 2019) readout update: dW_out = eta * eps * h, using the error DIRECTLY.
-
-        Audit fix: the previous 3x3 output-space rotation B was decorative and mislocated --
-        RFLO's random feedback trains the RECURRENT weights (N_hidden x N_output), while the
-        readout uses the raw error. Our reservoir is fixed, so only the readout is plastic and
-        it takes the raw error, matching dW_out = eta * eps * h exactly."""
-        e = c.err_local
-        self.W += self.lr / c.n * (e.t() @ c.aux / c.batch - self.lam * self.W)
+        """RFLO (Murray 2019): a LEAKY eligibility trace of presynaptic activity (real-time,
+        forward-in-time), with the readout error routed through the FIXED random-feedback matrix B
+        (feedback alignment, no weight transport). Distinct from e-prop (no ALIF pseudo-derivative
+        gate) and from a plain delta rule (which has neither the trace nor B)."""
+        if getattr(self, "_elig", None) is None or self._elig.shape[0] != c.aux.shape[0]:
+            self.on_episode_start(c.aux.shape[0])
+        self._elig = self._decay * self._elig + (1 - self._decay) * c.aux    # leaky trace of presyn activity
+        e = c.err_local @ self.B.t()                                          # random-feedback credit assignment
+        self.W += self.lr / c.n * (e.t() @ self._elig / c.batch - self.lam * self.W)
         self.b += self.lr / c.n * e.mean(0)
 
     def fit(self, env, budget, probe, batch=256):
@@ -367,10 +374,11 @@ class PredictiveCoding(_ResBase):
     name = "Predictive coding (hierarchical error-unit inference)"
     cite = "Rao&Ballard 99 (Nat.Neurosci.); Friston active inference; morphological head"
     wins = "robust asymptotic control (inference corrects deviations online)"
-    def __init__(self, env, teacher=None, Nrep=RES_NR, lr=0.1, n_infer=5, seed=0, **kw):
+    def __init__(self, env, teacher=None, Nrep=RES_NR, lr=0.1, lr_g=0.01, n_infer=5, seed=0, **kw):
         # Nrep tracks RES_NR so the motor readout is 3*(Nrep+O)+3 = 12,327 -- the same plastic
         # budget as every sibling rule. Hard-coded 2048 silently gave it half.
-        super().__init__(env, teacher, seed=seed, **kw); self.Nrep, self.lr, self.n_infer = Nrep, lr, n_infer
+        super().__init__(env, teacher, seed=seed, **kw)
+        self.Nrep, self.lr, self.lr_g, self.n_infer = Nrep, lr, lr_g, n_infer
         g = th.Generator(device="cpu").manual_seed(seed + 7)
         self.register_buffer("Wenc", (th.randn(Nrep, self.Nr, generator=g) / math.sqrt(self.Nr)).to(self.dev))
         # fixed generative model (top-down prediction of the reservoir feature); UNIT-NORM columns so
@@ -383,8 +391,8 @@ class PredictiveCoding(_ResBase):
         for _ in range(self.n_infer):
             eps = h - r @ self.Wpred.t()                                     # bottom-up error units
             r = r + 0.2 * (eps @ self.Wpred) - 0.1 * r                       # descend prediction error (stable)
-        return r        # ponytail: the old 2nd return (a final residual) was read by NOBODY and Wpred is a
-                        # fixed buffer that is never trained, so computing it was a wasted Nr x Nrep matvec.
+        return r        # the settled latent; on_step recomputes the reservoir prediction error from
+                        # (c.state, r) to train the generative weights Wpred (Rao-Ballard, second half).
     def act(self, obs, h, explore=False):
         h = self._recur((obs - self.mu) / self.sig, h); r = self._infer(h)
         zr = th.cat([r, (obs - self.mu) / self.sig], -1)
@@ -396,9 +404,16 @@ class PredictiveCoding(_ResBase):
 
     @th.no_grad()
     def on_step(self, c):
-        """Hierarchical predictive coding: the latent r is settled by iterative error-unit
-        inference in forward(); here the top-level motor prediction error (the SHARED signal)
-        descends onto the motor readout."""
+        """Hierarchical predictive coding (Rao & Ballard 1999), BOTH halves:
+          (1) the GENERATIVE model learns -- the top-down weights Wpred are adjusted by the local
+              Hebbian product of the reservoir prediction error and the settled latent
+              (dWpred ~ eps^T r), so the generative model gets better at predicting its input;
+          (2) the top-level motor prediction error (the SHARED signal) descends onto the motor readout.
+        The latent r itself is settled by iterative error-unit inference in forward()/act()."""
+        r = c.aux[:, :self.Nrep]                                # settled latent (aux = [r, x])
+        eps = c.state - r @ self.Wpred.t()                      # reservoir-level prediction error units
+        self.Wpred += self.lr_g / c.n * (eps.t() @ r) / c.batch  # generative-weight learning (Rao-Ballard)
+        self.Wpred /= (self.Wpred.norm(dim=0, keepdim=True) + 1e-8)   # keep columns unit-norm -> inference stays contractive
         self.Wmot += self.lr / c.n * (c.err_local.t() @ c.aux / c.batch - self.lam * self.Wmot)
         self.b += self.lr / c.n * c.err_local.mean(0)
 
