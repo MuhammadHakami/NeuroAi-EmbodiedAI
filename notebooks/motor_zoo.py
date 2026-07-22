@@ -877,9 +877,15 @@ class SHAC(nn.Module, Learner):
         O = env.observation_space.shape[0]; self.hidden = hidden; self.O = O
         self.gru = nn.GRU(O, hidden, 1, batch_first=True); self.fc = nn.Linear(hidden, self.RAW)
         nn.init.xavier_uniform_(self.gru.weight_ih_l0); nn.init.orthogonal_(self.gru.weight_hh_l0)
-        nn.init.xavier_uniform_(self.fc.weight); nn.init.zeros_(self.fc.bias)
+        nn.init.zeros_(self.gru.bias_ih_l0); nn.init.zeros_(self.gru.bias_hh_l0)
+        nn.init.xavier_uniform_(self.fc.weight)
+        # SAME init as BPTT-GRU / MotorNet (fc.bias=-5 -> muscles start near 0, compliant). SHAC
+        # previously used bias=0 (muscles start at 0.5, stiff), which is a DIFFERENT starting
+        # point and confounded the SHAC-vs-BPTT-GRU comparison: the only difference between them
+        # must be the algorithm (SHAC's truncated 16-step horizon), not the initialisation.
+        nn.init.constant_(self.fc.bias, -5.0)
         if self.RAW == 3:
-            with th.no_grad(): self.fc.bias[2] = -3.0
+            with th.no_grad(): self.fc.bias[0] = self.fc.bias[1] = 0.0; self.fc.bias[2] = -3.0
         # The critic is built ONLY on the demonstrator path (see _mk_critic). Under the shared
         # imitation objective there is no value target to fit, so a critic here would be 36,610
         # dead parameters -- 4x every other entry's budget, breaking the equal-capacity premise
