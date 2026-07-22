@@ -266,10 +266,13 @@ def eval_metrics(env, learner, seed=EVAL_SEED, batch=EVAL_BATCH, step_kwargs=Non
     final_err_m = r["dist"][:, -k:].mean(1)                       # (B,) per-reach endpoint err
     completion = 100.0 * (final_err_m < SUCCESS_CM / 100.0).float().mean().item()
     completion2 = 100.0 * (final_err_m < 0.02).float().mean().item()   # strict 2 cm (biological precision, unlike the loose 5 cm "reached")
-    a = r["act"]                                                  # (B, T, 4) in muscle order
+    a = r["act"]                                                  # (B, T, n_muscles) in muscle order
     ctrl_sparse = 100.0 * (a < 0.05).float().mean().item()
-    # ReluPointMass24 muscle order: UR, UL, LR, LL -> antagonist pairs (UR,LL) and (UL,LR)
-    cc = th.minimum(a[..., 0], a[..., 3]) + th.minimum(a[..., 1], a[..., 2])
+    # antagonist pairs for the co-contraction index, per plant:
+    #   ReluPointMass24 (UR,UL,LR,LL) -> (UR,LL),(UL,LR); RigidTendonArm26 -> 3 flex/ext pairs
+    #   (pectoralis/deltoid, brachioradialis/tricepslat, biceps/tricepslong).
+    pairs = [(0, 1), (2, 3), (4, 5)] if a.shape[-1] == 6 else [(0, 3), (1, 2)]
+    cc = sum(th.minimum(a[..., i], a[..., j]) for i, j in pairs)
     cocontract = cc.mean().item()
     A = a.reshape(-1, a.shape[-1])                                # (B*T, 4)
     C = th.cov(A.t()) + 1e-8 * th.eye(a.shape[-1], device=a.device)
