@@ -37,10 +37,11 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "save", "mc_maz
 NWB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "000128",
                    "sub-Jenkins", "sub-Jenkins_ses-full_desc-train_behavior+ecephys.nwb")
 MM_TO_M = 1e-3
-# The monkey's centre-hold position in raw maze coords (its mean hand position at movement
-# onset across the 108 mazes; std <=4 mm). Every maze reach starts here, so a model compared to
-# the monkey must start here too -- see hold_reset_options().
-MAZE_HOLD = (0.0, -0.038)
+# The maze centre-hold in raw maze coords = the monkey's mean CURSOR position at movement onset
+# across the 108 mazes (std <=4 mm). MC_Maze is navigated by the cursor, and the cursor holds at
+# the maze origin (~0,0) -- NOT the hand (which sits ~38 mm below). Barriers/targets are defined
+# relative to this cursor origin, so a model compared to the monkey must start here too.
+MAZE_HOLD = (-0.001, -0.003)
 
 
 def hold_reset_options(env, batch):
