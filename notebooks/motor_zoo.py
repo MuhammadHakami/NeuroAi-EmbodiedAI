@@ -1658,6 +1658,12 @@ class BootstrapRL(nn.Module, Learner):
         """(raw command, new hidden). RAW = fc output straight into the head (the head does its own
         squashing internally), exactly like the demonstrator -- no extra squash."""
         hn = self.gru(self._nz(obs), h); return self.fc(hn)[..., :self.RAW], hn
+
+    def _raw_t(self, obs, h):
+        """TARGET-actor forward (gru_t/fc_t). Audit fix: the Bellman bootstrap must use the SLOW
+        target actor, not the online one -- TD3/SAC compute a' from the target network so the
+        value target does not chase the fast-moving policy."""
+        hn = self.gru_t(self._nz(obs), h); return self.fc_t(hn)[..., :self.RAW], hn
     def _logstd(self, hn=None): return self.log_std if self.stoch else None
     def act(self, obs, st, explore=False):
         h = st[0] if (th.is_tensor(st) and st.dim() == 3) else st
@@ -1678,7 +1684,7 @@ class BootstrapRL(nn.Module, Learner):
         o, h, a, r, n, nh, d, tgt = (self.bo[i], self.bh[i], self.ba[i], self.br[i],
                                      self.bn[i], self.bnh[i], self.bd[i], self.bt[i])
         with th.no_grad():
-            na, _ = self._raw(n, nh); na = na + (self.pn * th.randn_like(na)).clamp(-self.nc, self.nc)
+            na, _ = self._raw_t(n, nh); na = na + (self.pn * th.randn_like(na)).clamp(-self.nc, self.nc)
             zn = th.cat([self._nz(n), na], -1)
             y = r + self.gamma * (1 - d) * th.min(self.q1t(zn), self.q2t(zn))
         z = th.cat([self._nz(o), a], -1); lq = F.mse_loss(self.q1(z), y) + F.mse_loss(self.q2(z), y)
