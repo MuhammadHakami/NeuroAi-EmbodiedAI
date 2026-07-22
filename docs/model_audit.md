@@ -126,3 +126,18 @@ Net: only **KINESIS** (geometry prior + eval-gain tuning) and the **analysis-net
 10. Cleanups (low fairness, high honesty): remove RTRRL's 3×3 `B`, add Hebb3's eligibility trace or stop citing it, put a SimBa head on the deployed policy or document its absence, fix the RTRRL/e-prop docstrings that misdescribe the source rules.
 
 Files to touch: `motor_zoo.py` (BPTT/SHAC/SAC/FastTD3/Simba/KINESIS/PredCoding + shared obs_norm), `plausible_learners.py` (e-prop/RTRRL/BTSP/Hebb3/Dendritron), `4-analysis-net.ipynb` (teacher branch, line ~207).
+---
+
+## Structural finding (maintainer note, added during part-3 fixes)
+
+motor_zoo.py has TWO definitions each of SAC / FastTD3 / SimbaV2:
+- standalone (lines ~801/985/1065): FAITHFUL algorithms (real SAC soft target + entropy;
+  TD3 target actor) BUT hidden=256 -> policy params far exceed the 12.3k parity budget.
+- BootstrapRL subclasses (lines ~1756/1760/1765): param-matched (FAIR_HIDDEN=57) BUT
+  unfaithful (TD3-like, no SAC entropy). These SHADOW the standalone ones and are LIVE.
+
+Resolving this is both a PART-1 (one definition per model) and PART-2 (faithful) task, and
+they are in tension: faithful vs param-matched. The correct fix is to keep ONE definition per
+RL model that is BOTH faithful AND param-matched -- resize the faithful standalone actor to
+FAIR_HIDDEN (keep the critic wide, reported separately), delete the BootstrapRL shadows. This
+is a careful reimplementation (verify each trains) -- staged, not rushed.
