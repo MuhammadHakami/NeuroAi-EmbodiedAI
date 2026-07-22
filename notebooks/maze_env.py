@@ -39,6 +39,22 @@ NWB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "00
 MM_TO_M = 1e-3
 
 
+def _add_nlb_to_path():
+    import sys
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "nlb_tools")
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+
+def load_maze_nwb(nwb_path=NWB):
+    """The MC_Maze NWBDataset, with nlb_tools put on the path first. Robust to the caller's
+    working directory and to nlb_tools not already being importable (the qualitative demo needs
+    the monkey's real hand trajectories, which live in this NWB)."""
+    _add_nlb_to_path()
+    from nlb_tools.nwb_interface import NWBDataset
+    return NWBDataset(nwb_path)
+
+
 def extract_configs(nwb_path=NWB, cache=CACHE, force=False):
     """Pull the 108 (maze_id, version) puzzles out of the NWB once and cache them."""
     if os.path.exists(cache) and not force:
