@@ -506,6 +506,58 @@ def muscle_head(obs, raw4):
     advantage -- they must coordinate the muscles the hard way, exactly like MotorNet."""
     return th.sigmoid(raw4)   # plant-agnostic: raw width == RAW == env.n_muscles (4 point-mass / 6 arm)
 
+
+# ---- arm morphological head (RigidTendonArm26): the force_head analog for the 6-muscle arm ----
+# force_head works on the point mass because its muscles pull the fingertip DIRECTLY in Cartesian
+# space (line of action = fingertip->anchor, both read from obs). A 2-joint arm's muscles make
+# JOINT TORQUES, so the morphological transform is one step longer:
+#     endpoint force f  --J(q)^T-->  joint torque tau  --(-M^+)-->  least-effort muscle tensions
+# J(q) is the analytic 2-link fingertip Jacobian; the joint angle q and moment arms M are read from
+# the plant's proprioceptive state (env.states), never from a demonstrator. The moment-arm sign
+# (-M) and the tension->excitation scale g were calibrated against MotorNet: a pure spinal PD reflex
+# driven THROUGH this head reaches 93% within 5 cm / 2.8 cm mean on the arm centre-out task (cf. the
+# point-mass force_head reflex at 59%). Keeps raw width 3 (2-D force + co-contraction) on BOTH plants,
+# so the plausible readout, Bfb feedback and spinal reflex are byte-identical across plants.
+ARM_G = 0.01          # muscle-tension -> excitation scale (calibrated with ARM_FSCALE)
+ARM_FSCALE = 150.0    # endpoint-force scale: f = tanh(raw[:2]) * ARM_FSCALE
+
+def arm_force_head(env, f_scale=ARM_FSCALE, g=ARM_G):
+    """Build the arm morphological head closure `(obs, raw3) -> n_muscles excitations` for THIS arm.
+    raw[:2] = 2-D endpoint force, raw[2] = co-contraction. `f_scale` may be a float or a learned
+    nn.Parameter (Kinesis) -- the closure reads it live each step."""
+    L1 = float(env.effector.skeleton.L1); L2 = float(env.effector.skeleton.L2)
+    eye = th.eye(2, device=env.device)
+    def head(obs, raw3):
+        st = env.states
+        q = st["joint"][:, :2].detach(); M = st["geometry"][:, 2:4, :].detach()      # (b,2), (b,2,n_musc)
+        q0, q01 = q[:, 0], q[:, 0] + q[:, 1]
+        s0, c0, s01, c01 = th.sin(q0), th.cos(q0), th.sin(q01), th.cos(q01)
+        J = th.stack([th.stack([-L1 * s0 - L2 * s01, -L2 * s01], -1),
+                      th.stack([ L1 * c0 + L2 * c01,  L2 * c01], -1)], -2)            # (b,2,2)
+        f = th.tanh(raw3[:, :2]) * f_scale
+        tau = th.einsum("bji,bj->bi", J, f)                                          # J^T f -> joint torque
+        Mp = M.transpose(1, 2) @ th.linalg.inv(M @ M.transpose(1, 2) + 1e-6 * eye)    # M^+ (b,n_musc,2)
+        T = -th.einsum("bmj,bj->bm", Mp, tau)                                        # -M^+ tau -> tensions
+        c = th.sigmoid(raw3[:, 2:3])
+        return (th.relu(T) * g + c).clamp(0., 1.)
+    return head
+
+
+def morph_head(env, f_scale=650., anchors=ANCHORS):
+    """The ONE morphological head, plant-aware: point mass -> Cartesian `force_head`; arm -> the
+    joint-torque/moment-arm head. The plausible family (via configure), Dendritron and Kinesis all
+    wear this, so the same morphological-computation identity holds on either plant."""
+    if env.action_space.shape[0] == 4:
+        return lambda obs, raw3: force_head(obs, raw3, f_scale=f_scale, anchors=anchors)
+    return arm_force_head(env)
+
+
+def make_arm_env(device=DEVICE, **kwargs):
+    """MotorNet RigidTendonArm26 (monkey-matched 2-joint, 6-muscle arm) as a fair-setup ReachEnv --
+    the plant the 4-monkey-net arm centre-out benchmark runs on, sharing motor_zoo's reward/obs."""
+    arm = mn.effector.RigidTendonArm26(muscle=mn.muscle.RigidTendonHillMuscle())
+    return env_to(ReachEnv(effector=arm, max_ep_duration=1., **kwargs), device)
+
 # reservoir config for the plausible rules (won the sweep in 4-tuning-net.ipynb)
 # 4096 to MATCH plausible_learners.RES_NR. At 2048 Dendritron's plastic readout was
 # 3*(2048+12)+3 = 6,183 -- HALF the 12,327 every other local rule gets, which quietly broke
@@ -1258,8 +1310,12 @@ class Kinesis(nn.Module, Learner):
     def __init__(self, env, hidden=FAIR_HIDDEN, lr=1e-3, f_scale=500.0):     # LEARNED, init at F_MAX
         super().__init__(); self.dev = env.device; self.hidden = hidden
         self.f_scale = nn.Parameter(th.tensor(float(f_scale)))   # learned from the task, not eval-tuned
-        A = env.effector._path_coordinates[0, :, 0::2].T
-        self.register_buffer("anchors", th.tensor(A, dtype=th.float32))
+        # morphological decode is plant-aware: point mass -> Cartesian anchors; arm -> the
+        # joint-torque/moment-arm head (shares Kinesis's LEARNED f_scale, read live each step).
+        self._armhead = None if env.action_space.shape[0] == 4 else arm_force_head(env, f_scale=self.f_scale)
+        if self._armhead is None:
+            A = env.effector._path_coordinates[0, :, 0::2].T
+            self.register_buffer("anchors", th.tensor(A, dtype=th.float32))
         self.gru = nn.GRU(env.observation_space.shape[0], hidden, 1, batch_first=True)
         self.head = nn.Linear(hidden, 3)
         nn.init.xavier_uniform_(self.gru.weight_ih_l0); nn.init.orthogonal_(self.gru.weight_hh_l0)
@@ -1272,17 +1328,19 @@ class Kinesis(nn.Module, Learner):
     def _pull_dirs(self, obs):
         P = obs[:, 2:4]; l = obs[:, 4:8].clamp(min=1e-3)
         return (self.anchors[None, :, :] - P[:, None, :]) / l[:, :, None]
-    def act(self, obs, h, explore=False):
-        y, h = self.gru(((obs - self.mu) / self.sig)[:, None, :], h)
-        out = self.head(y).squeeze(1)
-        f = th.tanh(out[:, :2]) * self.f_scale; c = th.sigmoid(out[:, 2:3])
-        pull = (self._pull_dirs(obs) * f[:, None, :]).sum(-1)
-        return (F.relu(pull) / self.F_MAX + c).clamp(0., 1.), h
-    def HEAD(self, obs, raw):
-        """Morphological head: raw -> endpoint force + co-contraction -> muscle pulls."""
+    def _decode(self, obs, raw):
+        """Morphological head: raw -> endpoint force + co-contraction -> muscle excitations, via
+        whichever plant geometry this env carries (point-mass anchors or the arm moment-arm head)."""
+        if self._armhead is not None:
+            return self._armhead(obs, raw)
         f = th.tanh(raw[:, :2]) * self.f_scale; c = th.sigmoid(raw[:, 2:3])
         pull = (self._pull_dirs(obs) * f[:, None, :]).sum(-1)
         return (F.relu(pull) / self.F_MAX + c).clamp(0., 1.)
+    def act(self, obs, h, explore=False):
+        y, h = self.gru(((obs - self.mu) / self.sig)[:, None, :], h)
+        return self._decode(obs, self.head(y).squeeze(1)), h
+    def HEAD(self, obs, raw):
+        return self._decode(obs, raw)
 
     def forward(self, obs, h):
         y, h = self.gru(((obs - self.mu) / self.sig)[:, None, :], h)
@@ -1518,6 +1576,7 @@ class Dendritron(nn.Module, Learner):
         self.register_buffer("W0", th.zeros(3, self.M)); self.register_buffer("b", th.tensor([0., 0., -3.0]))
         self.packsA, self.packsB, self.packsF = {}, {}, {}           # per-context LoRA memory packs (+ fixed feedback)
         self._pack_seed = seed
+        self._head = morph_head(env)                                 # plant-aware morphological head
         self.mu, self.sig = obs_norm(env); self.to(self.dev)
     def _ensure(self, c):
         if c not in self.packsA:
@@ -1539,7 +1598,7 @@ class Dendritron(nn.Module, Learner):
         return h, th.cat([h, nz], -1)
     def _raw(self, z, c): return z @ self.W0.t() + (z @ self.packsA[c].t()) @ self.packsB[c].t() + self.b
     def act(self, obs, h, explore=False):
-        self._ensure(self.ctx); h, z = self._step(obs, h); return force_head(obs, self._raw(z, self.ctx)), h
+        self._ensure(self.ctx); h, z = self._step(obs, h); return self._head(obs, self._raw(z, self.ctx)), h
     def fit(self, env, budget, probe, batch=256):
         self._ensure(self.ctx); c = self.ctx
         if c not in self.registered: self.registered.append(c)
@@ -1561,7 +1620,7 @@ class Dendritron(nn.Module, Learner):
                         Az = z @ self.packsA[c].t()
                         self.packsB[c] += self.lr / n * (err[:, :, None] * Az[:, None, :]).mean(0)
                         self.packsA[c] += self.lr / n * ((err @ self.packsF[c])[:, :, None] * z[:, None, :]).mean(0)   # random feedback, no weight transport
-                    obs, r, term, trunc, info = env.step(force_head(obs, out))
+                    obs, r, term, trunc, info = env.step(self._head(obs, out))
                 eps += batch; probe(self, eps)
         self.base_frozen = True; probe(self, eps, force=True)          # freeze base after first skill
     @th.no_grad()
@@ -1571,7 +1630,7 @@ class Dendritron(nn.Module, Learner):
             self._ensure(c); h = self.init_state(batch)
             obs, info = env.reset(seed=seed, options={"batch_size": batch, "deterministic": True}); s = 0.
             for t in range(int(env.max_ep_duration / env.dt)):
-                h, z = self._step(obs, h); obs, r, term, trunc, info = env.step(force_head(obs, self._raw(z, c)), deterministic=True); s += r.mean().item()
+                h, z = self._step(obs, h); obs, r, term, trunc, info = env.step(self._head(obs, self._raw(z, c)), deterministic=True); s += r.mean().item()
             if s > best: best, best_c = s, c
         self.ctx = best_c; return best_c
     def ops(self, env):
@@ -1821,3 +1880,28 @@ RSTDP = _pl.RSTDP; PredictiveCoding = _pl.PredictiveCoding; Hebb3 = _pl.Hebb3
 # (GRUForce is already morphological, raw-3). MuscleGRU/BPTTGRU is the non-plausible baseline
 # + the demonstrator the RL learners bootstrap from. The 2-D notebook trains BOTH teachers.
 MorphGRU = GRUForce
+
+
+def _arm_head_selfcheck():
+    """A pure spinal PD reflex driven THROUGH the arm morphological head must reach on the arm
+    centre-out. Guards the sign (-M) and scale (ARM_G/ARM_FSCALE) calibration against regressions:
+    if a future edit flips the moment-arm sign the arm plausible family silently stops learning."""
+    env = make_arm_env(DEVICE)
+    head = arm_force_head(env)
+    with th.no_grad():
+        obs, info = env.reset(options={"batch_size": 256})
+        for _ in range(int(env.max_ep_duration / env.dt)):
+            ft = env.states["fingertip"]; vel = env.states["cartesian"][:, 2:4]
+            # reflex target in raw space == REFLEX_KP*err - REFLEX_KD*vel + the compliant (-3)
+            # co-contraction the plausible readouts start at (b0[2] = -3 -> sigmoid ~ 0.05)
+            raw = th.cat([1.0 * (env.goal[:, :2] - ft) - 0.15 * vel,
+                          th.full((256, 1), -3.0, device=DEVICE)], -1)
+            obs, r, term, trunc, info = env.step(head(obs, raw))
+        d = th.linalg.vector_norm(env.states["fingertip"] - env.goal[:, :2], dim=-1)
+    reach5 = (d < 0.05).float().mean().item()
+    assert reach5 > 0.6, f"arm reflex-through-head reached only {reach5:.1%} within 5cm (calibration broken)"
+    print(f"arm_force_head OK: spinal reflex reaches {reach5:.0%} within 5cm, mean {d.mean()*100:.1f} cm")
+
+
+if __name__ == "__main__":
+    _arm_head_selfcheck()
