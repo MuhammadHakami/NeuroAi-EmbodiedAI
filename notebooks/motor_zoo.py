@@ -1640,6 +1640,7 @@ class BootstrapRL(nn.Module, Learner):
         # a shared mean/log-std head lets entropy gradients silently degrade the BC-anchored mean
         # over ~100k updates (measured: 3.3cm -> 12cm). Separate param -> the mean stays put.
         self.log_std = nn.Parameter(th.full((R,), math.log(0.3), device=self.dev)) if self.stoch else None
+        self.alpha = 0.2   # SAC entropy temperature (used in BOTH critic target and actor loss)
         crit = (lambda: _SimbaNet(self.O + R, 1, 256)) if self.flavor == "simba" else (lambda: _mlp(self.O + R, 1, 256))
         self.q1, self.q2, self.q1t, self.q2t = crit().to(self.dev), crit().to(self.dev), crit().to(self.dev), crit().to(self.dev)
         self.q1t.load_state_dict(self.q1.state_dict()); self.q2t.load_state_dict(self.q2.state_dict())
@@ -1684,9 +1685,17 @@ class BootstrapRL(nn.Module, Learner):
         o, h, a, r, n, nh, d, tgt = (self.bo[i], self.bh[i], self.ba[i], self.br[i],
                                      self.bn[i], self.bnh[i], self.bd[i], self.bt[i])
         with th.no_grad():
-            na, _ = self._raw_t(n, nh); na = na + (self.pn * th.randn_like(na)).clamp(-self.nc, self.nc)
-            zn = th.cat([self._nz(n), na], -1)
-            y = r + self.gamma * (1 - d) * th.min(self.q1t(zn), self.q2t(zn))
+            if self.flavor == "sac":
+                # SAC soft target: a' ~ current policy at n, entropy-augmented value
+                mean_n, _ = self._raw(n, nh); std = self.log_std.exp()
+                u = mean_n + std * th.randn_like(mean_n)
+                logp = (-0.5 * ((u - mean_n) / std) ** 2 - self.log_std - 0.9189).sum(-1, keepdim=True)
+                zn = th.cat([self._nz(n), u], -1)
+                y = r + self.gamma * (1 - d) * (th.min(self.q1t(zn), self.q2t(zn)) - self.alpha * logp)
+            else:                                    # TD3: target actor + clipped smoothing noise
+                na, _ = self._raw_t(n, nh); na = na + (self.pn * th.randn_like(na)).clamp(-self.nc, self.nc)
+                zn = th.cat([self._nz(n), na], -1)
+                y = r + self.gamma * (1 - d) * th.min(self.q1t(zn), self.q2t(zn))
         z = th.cat([self._nz(o), a], -1); lq = F.mse_loss(self.q1(z), y) + F.mse_loss(self.q2(z), y)
         self.oq.zero_grad(set_to_none=True); lq.backward(); self.oq.step()
         if self.warm_left > 0:                       # critic warm-up: leave the actor at teacher-init
@@ -1694,9 +1703,17 @@ class BootstrapRL(nn.Module, Learner):
         else:
             # BC anchor is to the STORED demonstrator action (computed by the real teacher during
             # rollout) -- a fixed target, so the actor cannot drift into a positive-feedback loop.
-            pa, hn = self._raw(o, h); q = self.q1(th.cat([self._nz(o), pa], -1))
-            la = self.bc * F.mse_loss(pa, tgt.detach()) - self.rlw * (q.mean() / (q.abs().mean().detach() + 1e-6))
-            if self.stoch: la = la - self.ent * self.log_std.sum()   # entropy-seek: widen exploration std
+            if self.flavor == "sac":
+                # SAC actor loss: reparameterized sample, entropy-regularized min-Q maximization.
+                mean_o, hn = self._raw(o, h); std = self.log_std.exp()
+                u = mean_o + std * th.randn_like(mean_o)          # reparameterized (grad flows to mean+log_std)
+                logp = (-0.5 * ((u - mean_o.detach()) / std) ** 2 - self.log_std - 0.9189).sum(-1, keepdim=True)
+                q = th.min(self.q1(th.cat([self._nz(o), u], -1)), self.q2(th.cat([self._nz(o), u], -1)))
+                la_sac = (self.alpha * logp - q).mean()
+                la = la_sac + self.bc * F.mse_loss(u, tgt.detach())   # bc=0 in the no-teacher benchmark
+            else:
+                pa, hn = self._raw(o, h); q = self.q1(th.cat([self._nz(o), pa], -1))
+                la = self.bc * F.mse_loss(pa, tgt.detach()) - self.rlw * (q.mean() / (q.abs().mean().detach() + 1e-6))
             self.oa.zero_grad(set_to_none=True); la.backward(); self.oa.step()
             if self.stoch:
                 with th.no_grad(): self.log_std.data.clamp_(math.log(0.05), math.log(0.6))   # keep exploration sane
