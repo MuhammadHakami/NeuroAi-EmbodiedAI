@@ -169,3 +169,52 @@ model used by BOTH notebooks):
 This is a real refactor (touch RAW + both heads + the morphological geometry across 13 models, then
 retrain + verify on the arm) -- a dedicated session, not a low-context patch. 4-train-net + 4-analysis
 are already retrained on the fair setup; this closes the monkey side.
+
+---
+
+## Part 3 progress — plant-agnostic unification DONE; arm retrain remaining (2026-07-22)
+
+### Done + committed (verified)
+The 5-step refactor above is IMPLEMENTED and verified. All 13 learners are now ONE plant-agnostic
+definition each, running on BOTH the point mass (4 muscles) and the monkey RigidTendonArm26 (6):
+
+- **Gradient/deep-RL family** (BPTT-GRU, SHAC, SAC, FastTD3, Simba, MotorNetRef): `muscle_head` =
+  `sigmoid(raw)`; `RAW := env.action_space.shape[0]`; `obs_norm` branches on muscle count
+  (`[4 vision, n_musc len, n_musc vel]`). Point-mass params/constants byte-identical (no regression).
+- **Plausible family** (e-prop, RTRRL, BTSP, R-STDP, PredCoding, Hebb3): UNCHANGED — raw width stays
+  3 (2-D endpoint force + co-contraction) on both plants, so the readout/Bfb/spinal reflex are
+  identical. Only the HEAD differs, installed via `pl.configure(mz.morph_head(env), ...)`.
+- **Kinesis + Dendritron**: route their decode through the plant-aware `morph_head(env)`.
+- `make_arm_env()` builds the arm ReachEnv; `eval_metrics` co-contraction is plant-aware.
+
+Verified: all 13 construct + train on the arm; a spinal reflex through the arm head reaches 88-90%
+within 5 cm; on a 4096-ep smoke budget e-prop already reaches 60% within 5 cm on the arm.
+
+### Fairness: NO data leakage (user requirement, 2026-07-22)
+The **arm morphological head** is the force_head analog: endpoint force --J(q)^T--> joint torque
+--(-M(q)^+)--> least-effort muscle tensions. It uses ONLY the OBSERVATION (fingertip = obs[:,2:4],
+from which q is recovered by inverse kinematics) + FIXED body anatomy (link lengths; the moment-arm
+function M(q1), which is q0-independent and calibrated ONCE from the plant geometry, exactly like the
+point-mass fixed `anchors`). It NEVER reads MotorNet's internal per-step state (`env.states` joint /
+moment arms). The first cut DID read env.states (leak) and was rebuilt; leak-free costs ~nothing
+(90% vs 92% reflex). Audit result: **the only policy-path leak was the arm head (fixed); every other
+`env.states` read is in the shared learning signal (the L1 objective / reflex target), which uses
+ground-truth state identically for all 13 — the task definition, not privileged input.**
+
+Constraint verified — **4-train-net**: the ball mass is NOT in the observation (obs dim = 12 with or
+without a `mass_set`); MassReach sets `skeleton.mass` (physics) only. The model feels the mass through
+the dynamics, exactly like the original MotorNet, which never tells the policy the mass.
+
+### Remaining (the actual retrain — a focused next pass)
+1. Write a reproducible **arm trainer** (the old one that produced `save_monkey/models` is not in the
+   repo): for each of 13, build on `make_arm_env`, `pl.configure(morph_head(arm))`, train at full
+   budget, `eval_metrics` + `zero_shot`, assemble `results.json` (keys the notebook reads: name, cite,
+   kind, wins, tag, curve, acc, completion, completion5, params, zs_mean), save `{tag}.pt`.
+2. Recompute `linking.pkl` (neuro_link model<->S1/M1/human correlations) from fair-model rollouts.
+3. Migrate notebook cells 3/5/7 off `motor_zoo_monkey` -> `motor_zoo` + `plausible_learners`:
+   `z.make_env`->`mz.make_arm_env`, drop the `z.BPTTGRU` teacher (fair setup has NO demonstrator:
+   `cls(env)` not `cls(env, teacher=...)`), `z.N_MUSCLES`->6. Keep input/output experiment-faithful:
+   obs goal == the reach target the monkey/human saw; output = muscle->joint->fingertip (comparable to
+   monkey arm EMG/kinematics), so the model<->brain comparison is input-to-input, output-to-output.
+4. Delete `motor_zoo_monkey.py` (1259-line duplicate) once the notebook no longer imports it.
+5. Re-run/re-bake 4-monkey-net.
