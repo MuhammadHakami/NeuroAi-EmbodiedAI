@@ -455,8 +455,16 @@ def obs_norm(env):
     from the measured ranges, NOT from a running estimate -- so every rule sees
     exactly the same inputs and nothing leaks between episodes.
     """
-    mu  = th.tensor([0., 0., 0., 0., 2.8, 2.8, 2.8, 2.8, 0., 0., 0., 0.])
-    sig = th.tensor([0.6, 0.6, 0.6, 0.6, 0.8, 0.8, 0.8, 0.8, 12., 12., 12., 12.])
+    # Layout is [4 vision (goal_xy, fingertip_xy), n_muscles length, n_muscles velocity] on
+    # BOTH plants: point mass -> 4+4+4=12, RigidTendonArm26 -> 4+6+6=16. The constants are
+    # measured PER PLANT (muscle length/velocity ranges differ), so branch on the muscle count.
+    O = env.observation_space.shape[0]; nm = env.action_space.shape[0]; vis = O - 2 * nm
+    if nm == 6:                                              # monkey arm (measured on RigidTendonArm26)
+        mu  = th.cat([th.zeros(vis), th.full((nm,), 0.9), th.zeros(nm)])
+        sig = th.cat([th.full((vis,), 0.3), th.full((nm,), 0.3), th.full((nm,), 3.0)])
+    else:                                                    # ReluPointMass24 (original measured constants)
+        mu  = th.cat([th.zeros(vis), th.full((nm,), 2.8), th.zeros(nm)])
+        sig = th.cat([th.full((vis,), 0.6), th.full((nm,), 0.8), th.full((nm,), 12.)])
     return mu.to(env.device), sig.to(env.device)
 
 # ===== from t27_append.py ===========================================
@@ -496,7 +504,7 @@ def muscle_head(obs, raw4):
     sigmoid. This is the head the non-plausible learners (BPTT-GRU baseline, SHAC, SAC,
     FastTD3, Simba) wear on the 2-D point mass, so they get NO morphological (plausible)
     advantage -- they must coordinate the muscles the hard way, exactly like MotorNet."""
-    return th.sigmoid(raw4[:, :4])
+    return th.sigmoid(raw4)   # plant-agnostic: raw width == RAW == env.n_muscles (4 point-mass / 6 arm)
 
 # reservoir config for the plausible rules (won the sweep in 4-tuning-net.ipynb)
 # 4096 to MATCH plausible_learners.RES_NR. At 2048 Dendritron's plastic readout was
@@ -705,6 +713,10 @@ class GRUForce(nn.Module, Learner):
     HEAD = staticmethod(force_head)
     def __init__(self, env, hidden=FAIR_HIDDEN, lr=1e-3):
         super().__init__(); self.dev = env.device; self.hidden = hidden
+        # plant-agnostic muscle head: RAW=3 is the morphological force head (point-mass only);
+        # any other RAW is a direct muscle head, whose width is the plant's muscle count
+        # (4 point-mass / 6 arm). One definition now serves both plants.
+        if self.RAW != 3: self.RAW = env.action_space.shape[0]
         self.gru = nn.GRU(env.observation_space.shape[0], hidden, 1, batch_first=True)
         self.fc = nn.Linear(hidden, self.RAW)
         nn.init.xavier_uniform_(self.gru.weight_ih_l0); nn.init.orthogonal_(self.gru.weight_hh_l0)
@@ -875,6 +887,7 @@ class SHAC(nn.Module, Learner):
     def __init__(self, env, hidden=FAIR_HIDDEN, horizon=50, gamma=0.99, lam=0.95, lr_a=1e-3, lr_c=5e-4, tau=0.2):
         super().__init__(); self.dev = env.device; self.h, self.gamma, self.lam, self.tau = horizon, gamma, lam, tau
         O = env.observation_space.shape[0]; self.hidden = hidden; self.O = O
+        self.RAW = env.action_space.shape[0]        # muscle head: adapt to the plant (4 point-mass / 6 arm)
         self.gru = nn.GRU(O, hidden, 1, batch_first=True); self.fc = nn.Linear(hidden, self.RAW)
         nn.init.xavier_uniform_(self.gru.weight_ih_l0); nn.init.orthogonal_(self.gru.weight_hh_l0)
         nn.init.zeros_(self.gru.bias_ih_l0); nn.init.zeros_(self.gru.bias_hh_l0)
@@ -1619,6 +1632,7 @@ class BootstrapRL(nn.Module, Learner):
                  pn=0.2, nc=0.5, expl=0.2, bc=1.0, rlw=0.0, ent=0.01, cap=300_000, bs=512,   # rlw=0 -> actor optimises EXACTLY the shared objective
                  warm=3000, warm_upd=400, upd=2, expert_eps=6):
         super().__init__(); self.dev = env.device; self.teacher = teacher
+        self.RAW = env.action_space.shape[0]        # muscle head: adapt to the plant (4 point-mass / 6 arm)
         self.O = env.observation_space.shape[0]; self.H = hidden; R = self.RAW
         self.gamma, self.tau, self.pn, self.nc, self.expl = gamma, tau, pn, nc, expl
         self.bc, self.rlw, self.ent, self.bs, self.warm, self.upd = bc, rlw, ent, bs, warm, upd
