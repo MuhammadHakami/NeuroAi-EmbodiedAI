@@ -227,9 +227,13 @@ class RTRRL(_ResBase):
 
     @th.no_grad()
     def on_step(self, c):
-        """RFLO: the SHARED error projected through a FIXED RANDOM feedback matrix B
-        (feedback alignment), applied instantaneously -- no trace, no BPTT."""
-        e = c.err_local @ self.B.t()
+        """RFLO (Murray 2019) readout update: dW_out = eta * eps * h, using the error DIRECTLY.
+
+        Audit fix: the previous 3x3 output-space rotation B was decorative and mislocated --
+        RFLO's random feedback trains the RECURRENT weights (N_hidden x N_output), while the
+        readout uses the raw error. Our reservoir is fixed, so only the readout is plastic and
+        it takes the raw error, matching dW_out = eta * eps * h exactly."""
+        e = c.err_local
         self.W += self.lr / c.n * (e.t() @ c.aux / c.batch - self.lam * self.W)
         self.b += self.lr / c.n * e.mean(0)
 
@@ -252,7 +256,9 @@ class BTSP(_ResBase):
     name = "BTSP (plateau-gated one-shot · behavioural-timescale trace)"
     cite = "Bittner+17 BTSP (Science); dendritic plateau; morphological head"
     wins = "one-shot binding (a plateau writes a whole trajectory at once)"
-    def __init__(self, env, teacher=None, lr=0.001, tau_slow=1.0, p_plateau=8.0, **kw):
+    def __init__(self, env, teacher=None, lr=0.02, tau_slow=1.0, p_plateau=1.0, **kw):
+        # audit fix: p_plateau 8->1 so ~1 plateau fires per 1-s reach (Bittner 2017 is one/few),
+        # larger lr since each plateau is now a genuine one-shot biased write (not averaged out).
         super().__init__(env, teacher, **kw); self.lr, self.tau_slow, self.p_plateau = lr, tau_slow, p_plateau
     def forward(self, obs, h):
         h, z = self._feat(obs, h)
@@ -265,13 +271,19 @@ class BTSP(_ResBase):
 
     @th.no_grad()
     def on_step(self, c):
-        """Behavioural-timescale plasticity: a seconds-long trace bound to the SHARED error only
-        at a sparse dendritic PLATEAU. The 1/gp factor keeps the sparse writes unbiased."""
+        """Behavioural-timescale plasticity (Bittner 2017): a seconds-long presynaptic trace
+        bound to the instructive signal ONLY at a sparse, stochastic dendritic PLATEAU -- a
+        genuine one-shot, BIASED write.
+
+        Audit fix: the previous 1/(batch*gp) normalization made the expected update equal an
+        ungated continuous slow-Hebb rule (the plateau added only variance, zero mean-effect),
+        so the row measured slow Hebb, not BTSP. Dropping it makes each plateau a real biased
+        plasticity event, which is the defining BTSP mechanism."""
         self._trace = self._decay * self._trace + (1 - self._decay) * c.aux
         gate = (th.rand(c.batch, 1, device=self.dev) < self._gp).float()
         ge = gate * c.err_local
-        self.W += self.lr / c.n * (ge.t() @ self._trace / (c.batch * self._gp) - self.lam * self.W)
-        self.b += self.lr / c.n * (ge.sum(0) / (c.batch * self._gp))
+        self.W += self.lr / c.n * (ge.t() @ self._trace / c.batch - self.lam * self.W)
+        self.b += self.lr / c.n * (ge.sum(0) / c.batch)
 
     def fit(self, env, budget, probe, batch=256):
         import motor_core as _core                              # lazy: avoids a circular import
@@ -424,22 +436,34 @@ class Hebb3(_ResBase):
     name = "3-factor Hebb (reward-gated neuromodulatory plasticity)"
     cite = "Kusmierz+17 three-factor; Fremaux&Gerstner 16 R-max; morphological head"
     wins = "continual learning (a neuromodulator gates what is written)"
-    def __init__(self, env, teacher=None, lr=0.02, gain=4.0, **kw):
-        super().__init__(env, teacher, **kw); self.lr, self.gain = lr, gain
+    def __init__(self, env, teacher=None, lr=0.02, gain=4.0, tau_e=0.5, **kw):
+        super().__init__(env, teacher, **kw); self.lr, self.gain, self.tau_e = lr, gain, tau_e
         self.register_buffer("base", th.zeros(1, device=self.dev))    # dopamine baseline (EMA reward)
     def forward(self, obs, h):
         h, z = self._feat(obs, h)
         return z @ self.W.t() + self.b, h, z
 
+    def on_episode_start(self, B):
+        self._elig = th.zeros(self.R, self.Nr + self.O, device=self.dev)   # Fremaux&Gerstner trace
+        self._eb = th.zeros(self.R, device=self.dev)
+
     @th.no_grad()
     def on_step(self, c):
-        """Three-factor Hebbian: local pre-activity x post SHARED error, GATED by a dopamine
-        neuromodulator that bursts when reward beats its slow baseline."""
+        """Three-factor rule (Fremaux & Gerstner 2016): a seconds-long ELIGIBILITY TRACE of the
+        local pre x post-error product, consolidated by a dopamine neuromodulator that bursts
+        when reward beats its slow baseline.
+
+        Audit fix: the update was instantaneous; the defining Fremaux&Gerstner mechanism is the
+        decaying eligibility trace (tau_e ~ 0.5 s), now added."""
+        if not hasattr(self, "_elig"): self.on_episode_start(c.batch)
         R = -(c.err ** 2).mean()      # neuromodulator tracks THE shared objective itself
         M = th.sigmoid(self.gain * (R - self.base))
         self.base.mul_(0.99).add_(0.01 * R)
-        self.W += self.lr / c.n * M * (c.err_local.t() @ c.aux / c.batch - self.lam * self.W)
-        self.b += self.lr / c.n * M * c.err_local.mean(0)
+        decay = 1 - self.dt / self.tau_e
+        self._elig = decay * self._elig + (1 - decay) * (c.err_local.t() @ c.aux / c.batch)
+        self._eb = decay * self._eb + (1 - decay) * c.err_local.mean(0)
+        self.W += self.lr / c.n * M * (self._elig - self.lam * self.W)
+        self.b += self.lr / c.n * M * self._eb
 
     def fit(self, env, budget, probe, batch=256):
         import motor_core as _core                              # lazy: avoids a circular import
