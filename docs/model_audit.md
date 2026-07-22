@@ -287,3 +287,34 @@ Prioritized remediation (fairness-compatible code fixes first, then honest relab
       R-STDP dopamine-dip/LTD (low); FastTD3/SimbaV2 name refinement (minor) — partial-not-wrong, deferred.
 NOTE: RTRRL + PredictiveCoding changed -> 4-train-net's point-mass results for those two are stale;
 re-retrain 4-train-net (and re-bake 4-monkey-net after the arm retrain) to refresh both scoreboards.
+
+---
+
+## Verification of the retrained fair scoreboard (5-agent adversarial workflow, 2026-07-22)
+
+**Verdict: PUBLISHABLE — trustworthy, leak-free, paper-faithful.** Every value in save_monkey/
+results.json reproduces on rebuild; no dishonest or buggy figure across all 5 checks.
+- **Leakage: SOUND.** Proven at runtime: trashing env.states + goal leaves arm_force_head's output
+  identical (th.equal True) -> the head is a pure obs+fixed-anatomy function. obs[:,2:4]==fingertip
+  (maxdiff 0.0). Only the shared L1 objective/reflex target uses ground truth, identical for all.
+- **Fair invariants: hold in substance.** count_params reproduces exactly for all 14 (gradient
+  ~13.2k, plausible 12339, MotorNetRef 4998 as a deliberate unmatched baseline). Plausible plastic
+  readout (12339) is ~6% BELOW gradient (13173) -> if anything disadvantages the plausible family.
+  All obs=16/act=6, one budget (curves len 41), boot=obs=False (no demonstrator).
+- **RFLO + PredictiveCoding fixes: confirmed correct** against Murray 2019 / Rao&Ballard 1999.
+
+Two principled improvements applied post-verification:
+- **SAC**: the 52.8cm sub-floor score was the fixed-alpha entropy-dominance pitfall (entropy 7.3x
+  the tiny reward -> actor collapses to one posture), NOT a bug. Implemented entropy-constrained
+  temperature auto-tuning (Haarnoja+18 v2). Retrained: SAC 11.5cm/11% (was 0.6%), uses all 6 muscles
+  -- a fair, faithful deep-RL baseline. FastTD3 (same class, entropy off) already reached 14.2cm,
+  confirming TD3 learns and only SAC's temperature was the issue.
+- **BTSP**: the /_gp plateau-frequency compensation was tried and REJECTED (blows up one-shot
+  variance -> worse than the floor). BTSP's low completion is an honest cost of sparse one-shot
+  plasticity on equal episode budget, reported as-is.
+
+Faithful retrain (40k budget) final reaching (complete@5cm): BPTT/SHAC 100%, MotorNetRef 99%;
+PredCoding 68%, e-prop 55%, Dendritron 52%, Hebb3 46%, RFLO 31%, R-STDP 25%, BTSP 6%; SAC 11%,
+FastTD3 9%, Simba 2%; KINESIS 2%. Story: credit-assignment quality (not plausibility per se) sets
+the reaching ceiling. NOTE: 4-train-net's point-mass rows for RTRRL/PredictiveCoding/SAC are now
+stale (those models changed) -> re-retrain 4-train-net to refresh them.
