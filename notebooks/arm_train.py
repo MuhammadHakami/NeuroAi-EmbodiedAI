@@ -93,21 +93,27 @@ def main():
     print(f"device {DEVICE} | budget {BUDGET:,} eps/method | arm obs {env.observation_space.shape[0]} "
           f"muscles {env.action_space.shape[0]}\n", flush=True)
     nm = env.action_space.shape[0]
+    # MN_ONLY=sac,btsp trains ONLY those tags and MERGES into the existing results.json (the other
+    # seeded/deterministic rows reproduce identically, so retraining just a changed model is exact).
+    only = [t for t in os.environ.get("MN_ONLY", "").split(",") if t]
+    learners = [(c, t) for c, t in LEARNERS if (not only or t in only)]
+    print(f"training {len(learners)} model(s){' (subset '+','.join(only)+')' if only else ''}")
     floors = dict(random=mz.evaluate(env, mz.RandomFloor(nm)), silent=mz.evaluate(env, mz.SilentFloor(nm)))
     print(f"floors: random {floors['random']:.1f} cm | silent {floors['silent']:.1f} cm\n", flush=True)
-    RESULTS = []
-    for cls, tag in LEARNERS:
+    order = [t for _, t in LEARNERS]
+    prior = {r["tag"]: r for r in json.load(open(RESULTS_JSON))} if (only and os.path.exists(RESULTS_JSON)) else {}
+    for cls, tag in learners:
         try:
             r = run_one(cls, tag)
         except Exception as e:                       # a rule that cannot run is a RESULT, not a crash
             import traceback; traceback.print_exc()
             print(f"{tag:14s} FAILED: {type(e).__name__}: {e}", flush=True); continue
-        RESULTS.append(r)
+        prior[tag] = r
         print(f"{r['name']:42s} acc={r['acc']:6.1f}cm compl5={r['completion5']:5.1f}% "
               f"compl2={r['completion2']:5.1f}% ood={r['zs_mean']:6.1f} params={r['params']:6d} "
               f"{r['train_s']:5.0f}s", flush=True)
-        json.dump(RESULTS, open(RESULTS_JSON, "w"), indent=1)   # incremental: survive a mid-run stop
-    print(f"\nsaved {len(RESULTS)} models -> {MODEL_DIR}\nresults -> {RESULTS_JSON}", flush=True)
+        json.dump([prior[t] for t in order if t in prior], open(RESULTS_JSON, "w"), indent=1)   # incremental, keep order
+    print(f"\nsaved {len([t for t in order if t in prior])} models -> {MODEL_DIR}\nresults -> {RESULTS_JSON}", flush=True)
 
 
 if __name__ == "__main__":
