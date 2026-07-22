@@ -165,7 +165,7 @@ class EProp(_ResBase):
     name = "e-prop (ALIF reservoir · eligibility trace + learning signal)"
     cite = "Bellec+20 e-prop (Nat.Commun.); adaptive units, forward eligibility; morphological head"
     wins = "sample efficiency (eligibility credit assignment, no BPTT)"
-    def __init__(self, env, teacher=None, lr=0.05, tau_e=0.05, beta=0.4, rho_a=0.9, **kw):
+    def __init__(self, env, teacher=None, lr=0.02, tau_e=0.05, beta=0.4, rho_a=0.9, **kw):
         super().__init__(env, teacher, **kw); self.lr, self.tau_e, self.beta, self.rho_a = lr, tau_e, beta, rho_a
     def init_state(self, B):
         z = th.zeros(B, self.Nr, device=self.dev); return (z, z.clone())
@@ -215,7 +215,7 @@ class RTRRL(_ResBase):
     name = "RTRRL / RFLO (real-time local · random feedback)"
     cite = "Murray 19 RFLO (eLife); feedback alignment, instantaneous; morphological head"
     wins = "online adaptation (real-time, no trace, no BPTT)"
-    def __init__(self, env, teacher=None, lr=0.002, seed=1, **kw):
+    def __init__(self, env, teacher=None, lr=0.01, seed=1, **kw):
         super().__init__(env, teacher, seed=seed, **kw); self.lr = lr
         g = th.Generator(device="cpu").manual_seed(seed + 5)
         # random feedback = identity + a small random rotation (feedback alignment, but mild enough
@@ -252,7 +252,7 @@ class BTSP(_ResBase):
     name = "BTSP (plateau-gated one-shot · behavioural-timescale trace)"
     cite = "Bittner+17 BTSP (Science); dendritic plateau; morphological head"
     wins = "one-shot binding (a plateau writes a whole trajectory at once)"
-    def __init__(self, env, teacher=None, lr=0.002, tau_slow=1.0, p_plateau=8.0, **kw):
+    def __init__(self, env, teacher=None, lr=0.001, tau_slow=1.0, p_plateau=8.0, **kw):
         super().__init__(env, teacher, **kw); self.lr, self.tau_slow, self.p_plateau = lr, tau_slow, p_plateau
     def forward(self, obs, h):
         h, z = self._feat(obs, h)
@@ -292,7 +292,7 @@ class RSTDP(_ResBase):
     name = "R-STDP (spiking eligibility · reward-modulated STDP tag)"
     cite = "Izhikevich 07 R-STDP (Cereb.Cortex); spike-timing tag, dopamine gate; morphological head"
     wins = "energy efficiency (event-driven spikes, sparse SynOps)"
-    def __init__(self, env, teacher=None, lr=0.002, tau_c=0.1, vth=0.3, **kw):
+    def __init__(self, env, teacher=None, lr=0.001, tau_c=0.1, vth=0.3, **kw):
         super().__init__(env, teacher, **kw); self.lr, self.tau_c, self.vth = lr, tau_c, vth; self.baseline = 0.0
     def forward(self, obs, h):
         h, z = self._feat(obs, h)
@@ -355,7 +355,7 @@ class PredictiveCoding(_ResBase):
     name = "Predictive coding (hierarchical error-unit inference)"
     cite = "Rao&Ballard 99 (Nat.Neurosci.); Friston active inference; morphological head"
     wins = "robust asymptotic control (inference corrects deviations online)"
-    def __init__(self, env, teacher=None, Nrep=RES_NR, lr=0.03, n_infer=5, seed=0, **kw):
+    def __init__(self, env, teacher=None, Nrep=RES_NR, lr=0.1, n_infer=5, seed=0, **kw):
         # Nrep tracks RES_NR so the motor readout is 3*(Nrep+O)+3 = 12,327 -- the same plastic
         # budget as every sibling rule. Hard-coded 2048 silently gave it half.
         super().__init__(env, teacher, seed=seed, **kw); self.Nrep, self.lr, self.n_infer = Nrep, lr, n_infer
@@ -424,7 +424,7 @@ class Hebb3(_ResBase):
     name = "3-factor Hebb (reward-gated neuromodulatory plasticity)"
     cite = "Kusmierz+17 three-factor; Fremaux&Gerstner 16 R-max; morphological head"
     wins = "continual learning (a neuromodulator gates what is written)"
-    def __init__(self, env, teacher=None, lr=0.005, gain=4.0, **kw):
+    def __init__(self, env, teacher=None, lr=0.02, gain=4.0, **kw):
         super().__init__(env, teacher, **kw); self.lr, self.gain = lr, gain
         self.register_buffer("base", th.zeros(1, device=self.dev))    # dopamine baseline (EMA reward)
     def forward(self, obs, h):
