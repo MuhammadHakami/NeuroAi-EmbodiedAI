@@ -112,6 +112,11 @@ class MazeReach:
         self._msk = th.tensor(cfg["mask"][idx], dtype=th.float32, device=dev)
         self._cond = None
 
+    def force_conditions(self, idx):
+        """Pin the maze conditions used by the NEXT reset(s) to `idx` (indices into cond_idx).
+        Pass None to release back to the env's default sampling."""
+        self._forced_cond = None if idx is None else np.asarray(idx)
+
     def sample_conditions(self, batch, generator=None, fixed=None):
         n = self._tg.shape[0]
         if fixed is not None:
@@ -147,7 +152,12 @@ def make_maze_env(dev, mass_set=None, conditions=None, collide_w=6.0, scale=0.85
         def reset(self, *a, **k):
             obs, info = super().reset(*a, **k)
             B = self.states["fingertip"].shape[0]
-            fixed = None if random_cond else np.arange(B) % len(self.cond_idx)
+            # a caller can pin the exact conditions for this reset (e.g. the qualitative demo
+            # rolling a model out on chosen mazes) via `env.force_conditions(idx)`; otherwise
+            # draw randomly (training) or tile deterministically (eval).
+            forced = getattr(self, "_forced_cond", None)
+            fixed = forced if forced is not None else (None if random_cond
+                                                       else np.arange(B) % len(self.cond_idx))
             self.sample_conditions(B, fixed=fixed)
             g = self.maze_goal()
             self.goal = g if self.goal.shape[-1] == g.shape[-1] else \
