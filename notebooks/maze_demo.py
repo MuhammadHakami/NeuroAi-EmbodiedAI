@@ -54,8 +54,12 @@ def pick_maze_rows(cfg, n=4):
     return picks
 
 
-def monkey_maze_path(ds, ti, cond_key, max_trials=8):
-    """Mean monkey hand path (T,2) for one (maze_id, version), in metres, centred on movement start."""
+def monkey_maze_path(ds, ti, cond_key, max_trials=8, recenter=False):
+    """Mean monkey hand path (T,2) for one (maze_id, version), in metres.
+
+    By default returns the RAW path (its first point is the monkey's centre-hold start, ~(0,-37)
+    mm), so the caller can align the model's start to the monkey's. `recenter=True` subtracts the
+    start (path begins at the origin)."""
     mz_id, ver = cond_key
     g = ti[(ti["maze_id"] == mz_id) & (ti["trial_version"] == ver)]
     hp = ds.data["hand_pos"]
@@ -73,8 +77,39 @@ def monkey_maze_path(ds, ti, cond_key, max_trials=8):
     if not segs:
         return None
     L = min(len(s) for s in segs)
-    P = np.stack([s[:L] for s in segs]).mean(0)
-    return (P - P[0]) * 1e-3                  # mm -> m, start at origin
+    P = np.stack([s[:L] for s in segs]).mean(0) * 1e-3       # mm -> m
+    return P - P[0] if recenter else P
+
+
+_IC_CURSOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "human_ic",
+                          "sub-N2_ses-20241105_tf_RadialGrid_aligned_cursor_gt_0.248_fct_0.0_s0.01_gaussian_0.1_10.pkl")
+_IC_TRIALS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "human_ic",
+                          "sub-N2_ses-20241105_tf_RadialGrid_trials.csv")
+
+
+def human_ic_cursor_path(theta, reach=0.12, max_trials=12):
+    """Mean human BMI-cursor path for the centre-out direction nearest `theta`, normalised for
+    display. This is a REAL recorded cursor trajectory (intracortical-M1 brain-machine interface,
+    Zenodo 19445138) -- a brain-controlled cursor, not a hand or joystick. None if not downloaded."""
+    import pickle
+    import pandas as pd
+    if not (os.path.exists(_IC_CURSOR) and os.path.exists(_IC_TRIALS)):
+        return None
+    cur = pickle.load(open(_IC_CURSOR, "rb"))[0]            # Series of (T,2) cursor POSITION paths
+    csv = pd.read_csv(_IC_TRIALS)
+    ang = csv["target_angle_deg"].values % 360.0
+    dirs = np.array(sorted(np.unique(ang)))
+    tgt = dirs[_nearest_dir(theta, dirs)]
+    idx = np.where(np.abs(((ang - tgt + 180) % 360) - 180) < 1e-3)[0][:max_trials]
+    segs = []
+    for i in idx:
+        p = np.asarray(cur.iloc[int(i)], dtype=float)
+        if p.ndim == 2 and len(p) > 3 and np.isfinite(p).all():
+            segs.append(p[np.linspace(0, len(p) - 1, 40).astype(int)])
+    if not segs:
+        return None
+    P = np.stack(segs).mean(0)
+    return fit_reach(P, reach=reach)
 
 
 def s1_dir_path(ds, ti, theta, max_trials=8):
