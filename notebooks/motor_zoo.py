@@ -1576,17 +1576,20 @@ class MotorNetPolicy(nn.Module):
 
 
 class RandomFloor(Learner):
-    """Uniform-random action baseline (the 'random policy floor' row)."""
+    """Uniform-random action baseline (the 'random policy floor' row). Plant-agnostic: pass the
+    plant's muscle count (4 point mass / 6 arm); defaults to 4 for the point-mass notebook."""
     name = "(random policy floor)"
+    def __init__(self, n_muscles=4): self.n = int(n_muscles)
     def init_state(self, B): return None
-    def act(self, o, s, explore=False): return th.rand(o.shape[0], 4, device=o.device), s
+    def act(self, o, s, explore=False): return th.rand(o.shape[0], self.n, device=o.device), s
 
 
 class SilentFloor(Learner):
-    """Zero-action baseline (the 'silent floor' row -- do nothing)."""
+    """Zero-action baseline (the 'silent floor' row -- do nothing). Plant-agnostic muscle count."""
     name = "(silent floor)"
+    def __init__(self, n_muscles=4): self.n = int(n_muscles)
     def init_state(self, B): return None
-    def act(self, o, s, explore=False): return th.zeros(o.shape[0], 4, device=o.device), s
+    def act(self, o, s, explore=False): return th.zeros(o.shape[0], self.n, device=o.device), s
 
 # ---------------------------------------------------------------------------------------------
 
