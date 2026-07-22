@@ -1224,8 +1224,12 @@ class BTSP(Reservoir):
 # KINESIS study the intent-net is trained by analytic policy gradient -- the plausibility
 # lives in the EMBODIMENT (the body computes), not in the weight update; the only thing
 # that differs from the exact-gradient baseline is the morphological action parameterisation.
-# PARAMETER FINE-TUNE: f_scale=650 N (vs the 600 default) so the morphological policy
-# saturates the reach target and reaches 100% completion on the held-out set.
+# NOTE (audit fix): f_scale is now a LEARNED parameter, not a constant hand-tuned on the
+# held-out set. The previous 650 N value was selected to hit 100% on the held-out eval, which is
+# test-set leakage; letting the policy learn its own force scale from the training reward removes
+# that advantage. KINESIS remains a deliberate structural-prior entry (its plausibility is the
+# fixed morphological force->muscle map), reported as its own family, not like-for-like with the
+# geometry-free learners -- see docs/model_audit.md.
 # ==============================================================================
 
 class Kinesis(nn.Module, Learner):
@@ -1238,8 +1242,9 @@ class Kinesis(nn.Module, Learner):
     wins = "zero-shot generalisation (the body absorbs perturbations)"
     F_MAX = 500.0
 
-    def __init__(self, env, hidden=FAIR_HIDDEN, lr=1e-3, f_scale=650.0):     # f_scale fine-tuned 600 -> 650
-        super().__init__(); self.dev = env.device; self.hidden, self.f_scale = hidden, f_scale
+    def __init__(self, env, hidden=FAIR_HIDDEN, lr=1e-3, f_scale=500.0):     # LEARNED, init at F_MAX
+        super().__init__(); self.dev = env.device; self.hidden = hidden
+        self.f_scale = nn.Parameter(th.tensor(float(f_scale)))   # learned from the task, not eval-tuned
         A = env.effector._path_coordinates[0, :, 0::2].T
         self.register_buffer("anchors", th.tensor(A, dtype=th.float32))
         self.gru = nn.GRU(env.observation_space.shape[0], hidden, 1, batch_first=True)
