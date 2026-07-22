@@ -509,35 +509,65 @@ def muscle_head(obs, raw4):
 
 # ---- arm morphological head (RigidTendonArm26): the force_head analog for the 6-muscle arm ----
 # force_head works on the point mass because its muscles pull the fingertip DIRECTLY in Cartesian
-# space (line of action = fingertip->anchor, both read from obs). A 2-joint arm's muscles make
+# space (line of action = fingertip->anchor, both read from OBS). A 2-joint arm's muscles make
 # JOINT TORQUES, so the morphological transform is one step longer:
-#     endpoint force f  --J(q)^T-->  joint torque tau  --(-M^+)-->  least-effort muscle tensions
-# J(q) is the analytic 2-link fingertip Jacobian; the joint angle q and moment arms M are read from
-# the plant's proprioceptive state (env.states), never from a demonstrator. The moment-arm sign
-# (-M) and the tension->excitation scale g were calibrated against MotorNet: a pure spinal PD reflex
-# driven THROUGH this head reaches 93% within 5 cm / 2.8 cm mean on the arm centre-out task (cf. the
-# point-mass force_head reflex at 59%). Keeps raw width 3 (2-D force + co-contraction) on BOTH plants,
-# so the plausible readout, Bfb feedback and spinal reflex are byte-identical across plants.
+#     endpoint force f  --J(q)^T-->  joint torque tau  --(-M(q)^+)-->  least-effort muscle tensions
+#
+# FAIRNESS (no leakage): exactly like force_head, this head uses ONLY the OBSERVATION (fingertip =
+# obs[:, 2:4]) and FIXED body anatomy -- it NEVER reads MotorNet's internal per-step simulator state
+# (live joint angle / live moment arms). The joint angle q is recovered from the obs fingertip by
+# inverse kinematics (fixed link lengths L1, L2); the moment arms M(q1) are a FIXED property of the
+# limb -- joint-1 moment arms depend only on the elbow angle q1 (verified q0-independent) and joint-0
+# moment arms are constant -- calibrated ONCE at build time by sampling the plant's fixed geometry.
+# That one-time body measurement is the exact analog of force_head reading the fixed muscle `anchors`
+# once. Every model in the benchmark sees the identical observation, so no model gets privileged
+# information: the morphological head is a fixed body transform, not a peek at the simulator.
+#
+# Calibrated (sign -M, scales below): a pure spinal PD reflex driven THROUGH this fair head reaches
+# 88% within 5 cm on the arm centre-out (cf. the point-mass force_head reflex at 59%). Raw width
+# stays 3 (2-D force + co-contraction) on BOTH plants, so the plausible readout / Bfb / spinal reflex
+# are byte-identical across plants.
 ARM_G = 0.01          # muscle-tension -> excitation scale (calibrated with ARM_FSCALE)
 ARM_FSCALE = 150.0    # endpoint-force scale: f = tanh(raw[:2]) * ARM_FSCALE
+_ARM_MTAB = {}        # device -> (elbow_ub, Mtab): fixed moment-arm anatomy, calibrated once per device
+
+def _arm_moment_table(env, n=64):
+    """The limb's FIXED moment-arm anatomy M(q1), sampled once from the plant geometry across the
+    elbow range. A one-time measurement of the body (like force_head's fixed anchors) -- never
+    read per step. Cached per device so every head shares the one calibration."""
+    key = str(env.device)
+    if key not in _ARM_MTAB:
+        ub = float(env.effector.pos_upper_bound[1])
+        cal = make_arm_env(env.device); tab = []
+        for q1 in th.linspace(0.0, ub, n):
+            cal.reset(options={"batch_size": 1,
+                               "joint_state": th.tensor([[1.0, float(q1), 0.0, 0.0]])})
+            tab.append(cal.states["geometry"][0, 2:4, :].clone())   # (2, n_musc); q0-independent
+        _ARM_MTAB[key] = (ub, th.stack(tab).to(env.device))
+    return _ARM_MTAB[key]
 
 def arm_force_head(env, f_scale=ARM_FSCALE, g=ARM_G):
-    """Build the arm morphological head closure `(obs, raw3) -> n_muscles excitations` for THIS arm.
-    raw[:2] = 2-D endpoint force, raw[2] = co-contraction. `f_scale` may be a float or a learned
-    nn.Parameter (Kinesis) -- the closure reads it live each step."""
+    """Build the FAIR arm morphological head closure `(obs, raw3) -> n_muscles excitations`. Uses
+    ONLY the obs fingertip + fixed anatomy (no internal simulator state). raw[:2] = 2-D endpoint
+    force, raw[2] = co-contraction. `f_scale` may be a float or a learned nn.Parameter (Kinesis)."""
     L1 = float(env.effector.skeleton.L1); L2 = float(env.effector.skeleton.L2)
+    reach2 = (L1 + L2) ** 2
+    ub, Mtab = _arm_moment_table(env)
     eye = th.eye(2, device=env.device)
     def head(obs, raw3):
-        st = env.states
-        q = st["joint"][:, :2].detach(); M = st["geometry"][:, 2:4, :].detach()      # (b,2), (b,2,n_musc)
-        q0, q01 = q[:, 0], q[:, 0] + q[:, 1]
-        s0, c0, s01, c01 = th.sin(q0), th.cos(q0), th.sin(q01), th.cos(q01)
+        P = obs[:, 2:4].detach()                                             # fingertip FROM OBS (sensed)
+        x, y = P[:, 0], P[:, 1]
+        r2 = (x * x + y * y).clamp(1e-6, reach2 - 1e-4)
+        q1 = th.acos(((r2 - L1 ** 2 - L2 ** 2) / (2 * L1 * L2)).clamp(-1., 1.))   # elbow (inverse kinematics)
+        q0 = th.atan2(y, x) - th.atan2(L2 * th.sin(q1), L1 + L2 * th.cos(q1))
+        q01 = q0 + q1; s0, c0, s01, c01 = th.sin(q0), th.cos(q0), th.sin(q01), th.cos(q01)
         J = th.stack([th.stack([-L1 * s0 - L2 * s01, -L2 * s01], -1),
-                      th.stack([ L1 * c0 + L2 * c01,  L2 * c01], -1)], -2)            # (b,2,2)
+                      th.stack([ L1 * c0 + L2 * c01,  L2 * c01], -1)], -2)        # (b,2,2)
+        M = Mtab[((q1.clamp(0., ub) / ub) * (Mtab.shape[0] - 1)).round().long()]  # fixed M(q1) (b,2,n_musc)
         f = th.tanh(raw3[:, :2]) * f_scale
-        tau = th.einsum("bji,bj->bi", J, f)                                          # J^T f -> joint torque
-        Mp = M.transpose(1, 2) @ th.linalg.inv(M @ M.transpose(1, 2) + 1e-6 * eye)    # M^+ (b,n_musc,2)
-        T = -th.einsum("bmj,bj->bm", Mp, tau)                                        # -M^+ tau -> tensions
+        tau = th.einsum("bji,bj->bi", J, f)                                      # J^T f -> joint torque
+        Mp = M.transpose(1, 2) @ th.linalg.inv(M @ M.transpose(1, 2) + 1e-6 * eye)
+        T = -th.einsum("bmj,bj->bm", Mp, tau)                                    # -M^+ tau -> tensions
         c = th.sigmoid(raw3[:, 2:3])
         return (th.relu(T) * g + c).clamp(0., 1.)
     return head
