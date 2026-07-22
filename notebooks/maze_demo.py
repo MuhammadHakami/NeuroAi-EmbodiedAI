@@ -148,6 +148,106 @@ def shac_maze_paths(shac, env, cond_indices, to_maze_coords=False):
     return [P[i] - P[i, 0] for i in range(B)]
 
 
+ZOO_LAZY = None
+
+
+def _zoo():
+    """tag -> class, built once. Kept here so the notebook cells stay one-liners."""
+    global ZOO_LAZY
+    if ZOO_LAZY is None:
+        import motor_zoo as mz
+        import plausible_learners as pl
+        ZOO_LAZY = {"motornet_ref": mz.MotorNetRef, "bptt_gru": mz.BPTTGRU, "shac": mz.SHAC,
+                    "sac": mz.SAC, "fasttd3": mz.FastTD3, "simbav2": mz.SimbaV2,
+                    "eprop": pl.EProp, "rtrrl": pl.RTRRL, "btsp": pl.BTSP, "kinesis": mz.Kinesis,
+                    "rstdp": pl.RSTDP, "predcode": pl.PredictiveCoding, "hebb3": pl.Hebb3,
+                    "dendritron": mz.Dendritron}
+    return ZOO_LAZY
+
+
+def load_any(weights_path, env, model=None):
+    """Rebuild a learner from a checkpoint, inferring the class from the file name."""
+    import os
+    import torch as th
+    tag = os.path.splitext(os.path.basename(weights_path))[0]
+    cls = model or _zoo().get(tag)
+    if cls is None:
+        raise KeyError(f"cannot infer a model from {tag!r}; pass model=<Class>. "
+                       f"Known: {sorted(_zoo())}")
+    m = cls(env)
+    sd = th.load(weights_path, map_location=env.device)
+    m.load_state_dict(sd.get("state_dict", sd) if isinstance(sd, dict) else sd, strict=False)
+    return m
+
+
+def embed_gif(path):
+    """Reliable inline display: base64-embed the GIF in an <img> so it animates and PERSISTS in
+    the saved notebook (a bare Image(filename) can show a blank/first-frame or vanish on reload)."""
+    import base64
+    from IPython.display import HTML
+    b64 = base64.b64encode(open(path, "rb").read()).decode()
+    return HTML(f'<img src="data:image/gif;base64,{b64}" style="max-width:100%"/>')
+
+
+def render_maze_runs(weights_path, n_runs=4, model=None, out=None, seed=7, fps=16):
+    """Roll a trained model out on `n_runs` of the monkey's mazes and animate it as one GIF.
+
+    weights_path : checkpoint (.pt); the class is inferred from the file name (or pass model=).
+    n_runs       : how many mazes to show side by side.
+    Returns the GIF path; display it with embed_gif(path).
+    """
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    import maze_env
+    import motor_zoo as mz
+
+    env = maze_env.make_maze_env(mz.DEVICE, random_cond=False)
+    m = load_any(weights_path, env, model=model)
+    cfg = env.cfg
+    rng = np.random.default_rng(seed)
+    conds = rng.choice(len(cfg["targets"]), size=n_runs, replace=False)
+    paths = shac_maze_paths(m, env, conds, to_maze_coords=True)
+
+    fig, axs = plt.subplots(1, n_runs, figsize=(3.1 * n_runs, 3.3), squeeze=False)
+    axs = axs[0]
+    trails, dots = [], []
+    tag = os.path.splitext(os.path.basename(weights_path))[0]
+    for j, ci in enumerate(conds):
+        ax = axs[j]
+        for cx, cy, hw, hh in cfg["barriers"][ci][:int(cfg["n_barriers"][ci])]:
+            ax.add_patch(plt.Rectangle((cx - hw, cy - hh), 2 * hw, 2 * hh, fc="#9AA3AD", ec="none", alpha=.7))
+        ax.plot(*cfg["targets"][ci], "*", ms=15, color="#D1495B", zorder=4)
+        ax.plot(*paths[j][0], "o", ms=4, color="#333", zorder=4)
+        (t,) = ax.plot([], [], "-", lw=2.2, color="#B3541E"); (d,) = ax.plot([], [], "o", ms=8, color="#B3541E", zorder=5)
+        trails.append(t); dots.append(d)
+        ax.set_xlim(-.16, .16); ax.set_ylim(-.16, .16); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(f"maze {tuple(int(v) for v in cfg['keys'][ci])} · {int(cfg['n_barriers'][ci])} barriers", fontsize=8)
+    fig.suptitle(f"{getattr(m, 'name', tag)} solving the monkey's mazes", fontsize=11, fontweight="bold")
+
+    NF = 40
+    RES = [p[np.linspace(0, len(p) - 1, NF).astype(int)] for p in paths]
+
+    def update(f):
+        arts = []
+        for j in range(n_runs):
+            k = min(f, NF - 1)
+            trails[j].set_data(RES[j][:k + 1, 0], RES[j][:k + 1, 1])
+            dots[j].set_data([RES[j][k, 0]], [RES[j][k, 1]])
+            arts += [trails[j], dots[j]]
+        return arts
+
+    plt.tight_layout()
+    ani = FuncAnimation(fig, update, frames=NF, interval=1000 / fps, blit=False)
+    out = out or os.path.join("save", f"maze_{tag}.gif")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    ani.save(out, writer=PillowWriter(fps=fps))
+    plt.close(fig)
+    print(f"saved {out} | {getattr(m,'name',tag)} on mazes {[tuple(int(v) for v in cfg['keys'][c]) for c in conds]}")
+    return out
+
+
 def demo():
     """Self-check: geometry helpers behave, no data/network needed."""
     assert _nearest_dir(10, [0, 90, 180, 270]) == 0
