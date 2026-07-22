@@ -585,11 +585,27 @@ def morph_head(env, f_scale=650., anchors=ANCHORS):
     return arm_force_head(env)
 
 
+class _ArmReach(ReachEnv):
+    """ReachEnv that records each reach's START and DIRECTION, so model activity can be
+    condition-averaged into the monkey's center-out directions (the S1/M1 comparison in
+    4-monkey-net). Same input/output interface the monkey had: the target (goal) is the input,
+    the fingertip trajectory + muscle activations are the output -- input<->input, output<->output."""
+    def reset(self, *a, **k):
+        obs, info = super().reset(*a, **k)
+        self._start = self.states["fingertip"].detach().clone()
+        info["start"] = self._start
+        return obs, info
+    def reach_dir(self):
+        """(B,) reach direction in degrees 0..360, start->goal (binned into the monkey's directions)."""
+        v = self.goal[..., :2] - self._start
+        return (th.rad2deg(th.atan2(v[:, 1], v[:, 0])) % 360.0)
+
+
 def make_arm_env(device=DEVICE, **kwargs):
     """MotorNet RigidTendonArm26 (monkey-matched 2-joint, 6-muscle arm) as a fair-setup ReachEnv --
     the plant the 4-monkey-net arm centre-out benchmark runs on, sharing motor_zoo's reward/obs."""
     arm = mn.effector.RigidTendonArm26(muscle=mn.muscle.RigidTendonHillMuscle())
-    return env_to(ReachEnv(effector=arm, max_ep_duration=1., **kwargs), device)
+    return env_to(_ArmReach(effector=arm, max_ep_duration=1., **kwargs), device)
 
 # reservoir config for the plausible rules (won the sweep in 4-tuning-net.ipynb)
 # 4096 to MATCH plausible_learners.RES_NR. At 2048 Dendritron's plastic readout was
