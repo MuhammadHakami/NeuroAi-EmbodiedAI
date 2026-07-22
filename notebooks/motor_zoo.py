@@ -1435,6 +1435,50 @@ class MotorNetRef(MuscleGRU):
     def __init__(self, env, hidden=32, lr=1e-3):
         super().__init__(env, hidden=hidden, lr=lr)
 
+
+class MotorNetPolicy(nn.Module):
+    """MotorNet's tutorial Policy, VERBATIM from examples/4-train-net.ipynb (Codol+24).
+
+    This is the exact upstream model — GRU -> Linear -> sigmoid, fc.bias init -5 — kept with its
+    own (input_dim, hidden_dim, output_dim, device) interface so the 4-train-net tutorial section
+    can import it instead of redefining it inline. MotorNetRef is the benchmark-interface wrapper
+    of the SAME architecture; this class is the reference the notebook's tutorial demonstrates.
+    """
+    def __init__(self, input_dim, hidden_dim, output_dim, device):
+        super().__init__()
+        self.device = device; self.hidden_dim = hidden_dim; self.n_layers = 1
+        self.gru = nn.GRU(input_dim, hidden_dim, 1, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim); self.sigmoid = nn.Sigmoid()
+        for name, param in self.named_parameters():         # MotorNet's exact init
+            if name == "gru.weight_ih_l0": nn.init.xavier_uniform_(param)
+            elif name == "gru.weight_hh_l0": nn.init.orthogonal_(param)
+            elif name in ("gru.bias_ih_l0", "gru.bias_hh_l0"): nn.init.zeros_(param)
+            elif name == "fc.weight": nn.init.xavier_uniform_(param)
+            elif name == "fc.bias": nn.init.constant_(param, -5.)
+            else: raise ValueError(name)
+        self.to(device)
+
+    def forward(self, x, h0):
+        y, h = self.gru(x[:, None, :], h0)
+        return self.sigmoid(self.fc(y)).squeeze(dim=1), h
+
+    def init_hidden(self, batch_size):
+        return next(self.parameters()).data.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device)
+
+
+class RandomFloor(Learner):
+    """Uniform-random action baseline (the 'random policy floor' row)."""
+    name = "(random policy floor)"
+    def init_state(self, B): return None
+    def act(self, o, s, explore=False): return th.rand(o.shape[0], 4, device=o.device), s
+
+
+class SilentFloor(Learner):
+    """Zero-action baseline (the 'silent floor' row -- do nothing)."""
+    name = "(silent floor)"
+    def init_state(self, B): return None
+    def act(self, o, s, explore=False): return th.zeros(o.shape[0], 4, device=o.device), s
+
 # ---------------------------------------------------------------------------------------------
 
 class Dendritron(nn.Module, Learner):
