@@ -278,3 +278,12 @@ Prioritized remediation (fairness-compatible code fixes first, then honest relab
 6. RELABEL (honest, no code): SHAC (criticless), FastTD3 (=TD3), Kinesis (morphological-control), so the
    scoreboard never claims an algorithm it does not implement. Delete dead standalone SAC/FastTD3/SimbaV2
    + shadowed Reservoir-based EProp/.../Hebb3 in motor_zoo.py (confusing for a faithfulness reader).
+
+### Part 2 remediation APPLIED (2026-07-22)
+- [x] RFLO/RTRRL — implemented the leaky eligibility trace + random-feedback readout (now genuinely RFLO, honestly weaker).
+- [x] PredictiveCoding — generative weights Wpred now learn (Rao-Ballard second half), renormalized to stay contractive.
+- [x] SHAC — relabeled honestly (16-step truncated diff-sim BPTT; critic dropped for parity).
+- [ ] SAC tanh-squash + Jacobian correction (medium); e-prop adaptation-eligibility term (medium);
+      R-STDP dopamine-dip/LTD (low); FastTD3/SimbaV2 name refinement (minor) — partial-not-wrong, deferred.
+NOTE: RTRRL + PredictiveCoding changed -> 4-train-net's point-mass results for those two are stale;
+re-retrain 4-train-net (and re-bake 4-monkey-net after the arm retrain) to refresh both scoreboards.
