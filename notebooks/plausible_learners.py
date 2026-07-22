@@ -285,7 +285,16 @@ class BTSP(_ResBase):
         Audit fix: the previous 1/(batch*gp) normalization made the expected update equal an
         ungated continuous slow-Hebb rule (the plateau added only variance, zero mean-effect),
         so the row measured slow Hebb, not BTSP. Dropping it makes each plateau a real biased
-        plasticity event, which is the defining BTSP mechanism."""
+        plasticity event, which is the defining BTSP mechanism.
+
+        On the equal-EPISODE budget this benchmark holds fixed, the sparse plateau (~1 fire per
+        1-s reach, gp~0.01) means BTSP's effective learning rate sits well below its dense-update
+        siblings, so its completion score reads low. That is an HONEST property of one-shot
+        behavioural-timescale plasticity, not a bug: a /_gp 'plateau-frequency compensation' was
+        tried and REJECTED -- it matches the expected per-episode write but blows up the variance
+        of each 100x one-shot write and destabilises the readout (measured WORSE than the do-
+        nothing floor). One-shot rules are inherently high-variance and simply need more episodes;
+        the row is reported as-is rather than tuned to look competitive."""
         self._trace = self._decay * self._trace + (1 - self._decay) * c.aux
         gate = (th.rand(c.batch, 1, device=self.dev) < self._gp).float()
         ge = gate * c.err_local

@@ -1766,7 +1766,17 @@ class BootstrapRL(nn.Module, Learner):
         # a shared mean/log-std head lets entropy gradients silently degrade the BC-anchored mean
         # over ~100k updates (measured: 3.3cm -> 12cm). Separate param -> the mean stays put.
         self.log_std = nn.Parameter(th.full((R,), math.log(0.3), device=self.dev)) if self.stoch else None
-        self.alpha = 0.2   # SAC entropy temperature (used in BOTH critic target and actor loss)
+        # SAC entropy temperature. AUTO-TUNED (Haarnoja+18 v2, entropy-constrained): a fixed alpha
+        # is a known SAC pitfall on small-magnitude rewards -- with this task's ~-0.15/step reward a
+        # fixed alpha=0.2 makes the entropy bonus ~7x the task return, so the soft objective becomes
+        # ~90% entropy-max and the mean policy collapses to one posture (measured: 52.8cm, worse than
+        # the random floor). Learning alpha to hold a target entropy (-action_dim) keeps the true SAC
+        # while letting it actually reach. Start small so it does not collapse before it adapts.
+        self.target_entropy = -float(R)
+        if self.stoch:
+            self.log_alpha = th.tensor(math.log(0.05), device=self.dev, requires_grad=True)
+            self.o_alpha = th.optim.Adam([self.log_alpha], lr=qlr)
+        self.alpha = 0.05   # initial/fallback; the live value is exp(log_alpha) when stochastic
         crit = (lambda: _SimbaNet(self.O + R, 1, 256)) if self.flavor == "simba" else (lambda: _mlp(self.O + R, 1, 256))
         self.q1, self.q2, self.q1t, self.q2t = crit().to(self.dev), crit().to(self.dev), crit().to(self.dev), crit().to(self.dev)
         self.q1t.load_state_dict(self.q1.state_dict()); self.q2t.load_state_dict(self.q2.state_dict())
@@ -1817,7 +1827,7 @@ class BootstrapRL(nn.Module, Learner):
                 u = mean_n + std * th.randn_like(mean_n)
                 logp = (-0.5 * ((u - mean_n) / std) ** 2 - self.log_std - 0.9189).sum(-1, keepdim=True)
                 zn = th.cat([self._nz(n), u], -1)
-                y = r + self.gamma * (1 - d) * (th.min(self.q1t(zn), self.q2t(zn)) - self.alpha * logp)
+                y = r + self.gamma * (1 - d) * (th.min(self.q1t(zn), self.q2t(zn)) - self.log_alpha.exp() * logp)
             else:                                    # TD3: target actor + clipped smoothing noise
                 na, _ = self._raw_t(n, nh); na = na + (self.pn * th.randn_like(na)).clamp(-self.nc, self.nc)
                 zn = th.cat([self._nz(n), na], -1)
@@ -1835,7 +1845,7 @@ class BootstrapRL(nn.Module, Learner):
                 u = mean_o + std * th.randn_like(mean_o)          # reparameterized (grad flows to mean+log_std)
                 logp = (-0.5 * ((u - mean_o.detach()) / std) ** 2 - self.log_std - 0.9189).sum(-1, keepdim=True)
                 q = th.min(self.q1(th.cat([self._nz(o), u], -1)), self.q2(th.cat([self._nz(o), u], -1)))
-                la_sac = (self.alpha * logp - q).mean()
+                la_sac = (self.log_alpha.exp().detach() * logp - q).mean()
                 la = la_sac + self.bc * F.mse_loss(u, tgt.detach())   # bc=0 in the no-teacher benchmark
             else:
                 pa, hn = self._raw(o, h); q = self.q1(th.cat([self._nz(o), pa], -1))
@@ -1843,6 +1853,11 @@ class BootstrapRL(nn.Module, Learner):
             self.oa.zero_grad(set_to_none=True); la.backward(); self.oa.step()
             if self.stoch:
                 with th.no_grad(): self.log_std.data.clamp_(math.log(0.05), math.log(0.6))   # keep exploration sane
+                # entropy-constrained temperature update (Haarnoja+18 v2): drive alpha so the policy
+                # holds the target entropy instead of letting a fixed alpha dominate the tiny reward.
+                alpha_loss = -(self.log_alpha * (logp.detach() + self.target_entropy)).mean()
+                self.o_alpha.zero_grad(set_to_none=True); alpha_loss.backward(); self.o_alpha.step()
+                with th.no_grad(): self.log_alpha.clamp_(math.log(1e-3), math.log(1.0)); self.alpha = float(self.log_alpha.exp())
             with th.no_grad():
                 for p, pt in zip(self.gru.parameters(), self.gru_t.parameters()): pt.mul_(1 - self.tau).add_(self.tau * p)
                 for p, pt in zip(self.fc.parameters(), self.fc_t.parameters()): pt.mul_(1 - self.tau).add_(self.tau * p)
