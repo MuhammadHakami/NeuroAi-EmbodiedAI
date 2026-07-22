@@ -72,30 +72,37 @@ Full descriptions, mechanisms and paper links: **[`citation/README.md`](citation
 
 ## Results so far
 
-> **Status: PENDING TESTS.** The numbers below are measured checkpoints at the budgets
-> shown, carried over from an earlier configuration. A corrected full run (batch 32,
-> parameter parity across all 13, MotorNet reference row) is in progress and this table
-> will be regenerated from the executed notebook. Treat these as provisional. Budgets differ per row (shown), and the
-> full 100 k-episode run across all 13 is still to come. Numbers are held-out (1.2 / 2.1 kg).
+> **Retrained on the fair, faithfulness-corrected setup** (40k episodes/model, batch 32, MotorNet's
+> L1 objective, ~12.3k policy params, no demonstrator). Held-out masses (1.2/2.1 kg). Both notebooks
+> regenerated with 0 errors. The plausible rules below are **faithful to their papers but not yet
+> re-tuned** for the corrected mechanisms — re-tuning belongs in `4-tuning-net.ipynb`.
 
-| Model | Budget | Error | Completion |
+| Model | Family | Error | Completion |
 |---|---|---|---|
-| SHAC | 8 k | 1.66 cm | 100.0 % |
-| KINESIS | 60 k | 2.82 cm | 91.0 % |
-| e-prop | 20 k | 2.84 cm | 80.7 % |
-| BPTT-GRU | 8 k | 3.31 cm | 87.1 % |
-| BTSP | 20 k | 5.81 cm | 57.2 % |
-| R-STDP | 20 k | 7.80 cm | 39.6 % |
-| RTRRL | 60 k | 7.75 cm | 43.4 % |
-| Hebb3 | 60 k | 7.28 cm | 37.3 % |
+| MotorNet reference (hidden 32) | global-gradient | 1.4 cm | 100.0 % |
+| BPTT-GRU | global-gradient | 1.0 cm | 100.0 % |
+| SHAC | global-gradient | 1.1 cm | 100.0 % |
+| KINESIS | morphological | 2.7 cm | 88.1 % |
+| e-prop | local-plausible | 3.0 cm | 79.7 % |
+| Dendritron | local-plausible | 7.2 cm | 39.6 % |
+| R-STDP | local-plausible | 9.0 cm | 31.6 % |
+| BTSP | local-plausible | 9.4 cm | 29.7 % |
+| RTRRL | local-plausible | 13.2 cm | 16.0 % |
+| Predictive coding | local-plausible | 15.3 cm | 14.6 % |
+| 3-factor Hebb | local-plausible | 12.6 cm | 7.4 % |
+| SAC | global-gradient (off-policy) | 38.6 cm | 0.4 % |
+| FastTD3 | global-gradient (off-policy) | 40.6 cm | 0.4 % |
+| Simba | global-gradient (off-policy) | 36.5 cm | 0.2 % |
 | *silent floor (do nothing)* | — | *106.6 cm* | *0 %* |
 
-**Honest reading.** e-prop is competitive with full backprop; the other local rules currently sit at
-roughly half the completion rate of the gradient models and that gap is real, not a bug. Where the
-plausible family *does* win is **update energy** — a local rule touches only a rank-1 outer product
-per step, with no backward pass and no stored trajectory.
-
----
+**Honest reading.** Full backprop (BPTT-GRU, SHAC) and the MotorNet reference solve the task (100%).
+KINESIS is 88% (down from a leaky 91% — its output gain is now learned, not tuned on the test set).
+**Model-free RL fails from reward alone** (SAC/FastTD3/Simba ~0.4%) — and SAC is now a *faithful* SAC
+(soft target + entropy), so it fails honestly rather than as a mislabeled TD3. Among the plausible
+rules, **e-prop leads at 80%** — its eligibility trace is the credit-assignment mechanism the task
+needs; the instantaneous rules trail. That spread is the scientific result. See `docs/model_audit.md`
+for each model's faithfulness to its source, and the remaining reimplementations (SHAC critic, e-prop
+recurrence) still to land before the final numbers.
 
 ## Quick start
 
