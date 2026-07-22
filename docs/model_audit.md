@@ -218,3 +218,63 @@ the dynamics, exactly like the original MotorNet, which never tells the policy t
    monkey arm EMG/kinematics), so the model<->brain comparison is input-to-input, output-to-output.
 4. Delete `motor_zoo_monkey.py` (1259-line duplicate) once the notebook no longer imports it.
 5. Re-run/re-bake 4-monkey-net.
+
+---
+
+## Part 2 — model-to-paper faithfulness audit (3 independent agents, 2026-07-22)
+
+Fairness result (all 3 agents agree): **NO policy-path leakage in any of the 13.** Every `act`/
+`forward` reads only obs -> fixed reservoir/GRU -> readout -> head(obs). `arm_force_head` confirmed
+clean (obs fingertip + once-calibrated fixed moment-arm table, no live `env.states`). The only
+`env.states` reads are in the shared learning signal (L1 objective / spinal-reflex target), identical
+for all models — the task definition, not privileged input. This independently confirms the arm-head
+leak fix.
+
+Paper-faithfulness verdicts (| model | faithful? | gap |):
+
+- MotorNetRef / BPTT-GRU — **faithful** (MotorNet tutorial Policy verbatim; obs-norm is a shared benign transform).
+- **SHAC** — **partial, genuine break**: short-horizon truncated differentiable-sim gradient present
+  (horizon 16), but the **critic + TD(λ) value bootstrap is dead** (in `_fit_reward_unused`, never
+  called). Runtime SHAC = criticless 16-step BPTT. Fix: restore the value bootstrap (costs params,
+  breaks parity) OR relabel the row "truncated-window BPTT (SHAC-style, criticless)". [Xu+22]
+- SAC — **faithful soft AC** (reparameterized sample, entropy in soft target + actor loss, twin-Q);
+  minor: entropy on the unsquashed action (no tanh/Jacobian correction — the dead standalone SAC had
+  it), state-independent log_std. [Haarnoja+18]
+- FastTD3 — **faithful vanilla TD3** (twin-Q, target smoothing, deterministic actor); missing the
+  distributional C51 critic that defines FastTD3 (breaks param budget) + no delayed policy update ->
+  name overclaims; cite already says "TD3". [Fujimoto+18 / Seo+25]
+- SimbaV2 — critic **is** a residual/LayerNorm SimbaNet (Simba-v1, faithful; cite says "Simba");
+  class NAME "V2" overclaims (V2 = hyperspherical norm, absent). Display name already reads "Simba". [Lee+24]
+- e-prop — **partial**: ALIF + pseudo-derivative eligibility + learning-signal x eligibility present,
+  but recurrence is **frozen** (shared reservoir) and the adaptation-variable eligibility term is
+  missing. [Bellec+20]
+- **RTRRL / RFLO** — **NOT the algorithm**: the random-feedback matrix B is **dead code**, there is
+  **no eligibility trace**, and `on_step` is a bare delta rule structurally identical to
+  PredictiveCoding's. The "instantaneous / RTRL-truncation" comment misreads Murray 2019 (RFLO keeps a
+  LEAKY trace). Fix (HIGH): implement `p=(1-dt/tau)p + (dt/tau)phi'(presyn)*presyn` and route error
+  through the registered B (`dW ~ (B eps) (x) p`), or relabel as a delta baseline. [Murray 2019 eLife]
+- BTSP — **faithful** (1 s plateau eligibility, stochastic plateau gate, one-shot biased write). [Bittner+17]
+- R-STDP — **partial**: spiking presynaptic gate + eligibility tag + dopamine third factor present,
+  but it is a reward-modulated Hebbian tag, not a true asymmetric pre-post STDP window; dopamine floored
+  (no LTD). Low. [Izhikevich 2007]
+- **PredictiveCoding** — **partial**: iterative inference + top-down generative pathway are real, but
+  the **generative weights never learn** (Wpred/Wenc fixed random; only the readout has a delta rule).
+  Docstring overclaims. Fix (HIGH): add `dWpred ~ eps (x) r` OR downgrade the docstring. [Rao&Ballard 1999]
+- Hebb3 — **faithful** three-factor (reward-minus-baseline neuromodulator gates a pre x post-error
+  eligibility trace). [Fremaux&Gerstner 2016]
+- **Kinesis** — the morphological force head + LEARNED f_scale is faithfully implemented, but the real
+  KINESIS (arXiv:2503.14637) is model-free RL motion imitation on an 80-muscle MyoSuite model. This is
+  a **labeling** issue: present the row as morphological-computation control (Hogan 84 / Wochner+23),
+  with KINESIS as thematic inspiration (the code header is already candid). [Simos+25]
+- Dendritron — **faithful** (frozen base + active per-context LoRA packs A@B, feedback-alignment A
+  update, router; no forgetting). [Hu+22 LoRA]
+
+Prioritized remediation (fairness-compatible code fixes first, then honest relabels):
+1. HIGH — RFLO/RTRRL: implement the leaky eligibility trace + random-feedback readout (plausible_learners.py 214-238).
+2. HIGH — PredictiveCoding: learn the generative weights, or correct the docstring (plausible_learners.py 356-403).
+3. MED  — e-prop: add the adaptation-variable eligibility term (plausible_learners.py 187-197).
+4. MED  — SAC: tanh-squash + Jacobian log-prob correction (motor_zoo.py ~1794-1819).
+5. LOW  — R-STDP: allow dopamine dip (LTD); e-prop/others per notes.
+6. RELABEL (honest, no code): SHAC (criticless), FastTD3 (=TD3), Kinesis (morphological-control), so the
+   scoreboard never claims an algorithm it does not implement. Delete dead standalone SAC/FastTD3/SimbaV2
+   + shadowed Reservoir-based EProp/.../Hebb3 in motor_zoo.py (confusing for a faithfulness reader).
