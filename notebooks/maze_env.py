@@ -37,6 +37,20 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "save", "mc_maz
 NWB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "000128",
                    "sub-Jenkins", "sub-Jenkins_ses-full_desc-train_behavior+ecephys.nwb")
 MM_TO_M = 1e-3
+# The monkey's centre-hold position in raw maze coords (its mean hand position at movement
+# onset across the 108 mazes; std <=4 mm). Every maze reach starts here, so a model compared to
+# the monkey must start here too -- see hold_reset_options().
+MAZE_HOLD = (0.0, -0.038)
+
+
+def hold_reset_options(env, batch):
+    """reset() options that place the point mass at the monkey's centre-hold (in the env's plant
+    frame), so a model solves the maze from the SAME start the monkey did."""
+    import torch as _th
+    hx = MAZE_HOLD[0] * env.maze_scale + float(env.maze_centre[0])
+    hy = MAZE_HOLD[1] * env.maze_scale + float(env.maze_centre[1])
+    js = _th.tensor([[hx, hy, 0.0, 0.0]], dtype=_th.float32).repeat(batch, 1)   # x,y,vx,vy (CPU)
+    return {"batch_size": batch, "joint_state": js}
 
 
 def _add_nlb_to_path():

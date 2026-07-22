@@ -69,7 +69,7 @@ def monkey_maze_path(ds, ti, cond_key, max_trials=8, recenter=False):
         t0 = r["move_onset_time"]
         if _pd.isna(t0):
             continue
-        s = hp.loc[t0:t0 + _pd.Timedelta("450ms")].values
+        s = hp.loc[t0:t0 + _pd.Timedelta("600ms")].values
         if len(s) > 5 and np.isfinite(s).all():
             segs.append(s[:: max(1, len(s) // 40)][:40])
         if len(segs) >= max_trials:
@@ -163,9 +163,10 @@ def shac_maze_paths(shac, env, cond_indices, to_maze_coords=False):
     (raw = (plant - centre) / scale) so the path lines up with the barriers and target, which
     are drawn in raw maze coordinates."""
     import torch as th
+    import maze_env as _me
     B = len(cond_indices)
     env.force_conditions(cond_indices)              # reset() will use exactly these mazes
-    obs, info = env.reset(options={"batch_size": B})
+    obs, info = env.reset(options=_me.hold_reset_options(env, B))   # START AT THE MONKEY'S HOLD
     env.force_conditions(None)
     st = shac.init_state(B)
     path = [env.states["fingertip"].detach().cpu().numpy().copy()]
