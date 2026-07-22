@@ -62,7 +62,10 @@ def monkey_maze_path(ds, ti, cond_key, max_trials=8, recenter=False):
     start (path begins at the origin)."""
     mz_id, ver = cond_key
     g = ti[(ti["maze_id"] == mz_id) & (ti["trial_version"] == ver)]
-    hp = ds.data["hand_pos"]
+    # MC_Maze is navigated by the on-screen CURSOR, not the hand. cursor_pos avoids every barrier
+    # (0 penetrations) and lands 1-3 cm from the target; hand_pos is offset from it, so it appeared
+    # to pass through walls and stop short. The maze solution is the cursor trajectory.
+    hp = ds.data["cursor_pos"]
     segs = []
     import pandas as _pd
     for _, r in g.iterrows():
