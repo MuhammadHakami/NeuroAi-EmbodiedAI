@@ -141,3 +141,31 @@ they are in tension: faithful vs param-matched. The correct fix is to keep ONE d
 RL model that is BOTH faithful AND param-matched -- resize the faithful standalone actor to
 FAIR_HIDDEN (keep the critic wide, reported separately), delete the BootstrapRL shadows. This
 is a careful reimplementation (verify each trains) -- staged, not rushed.
+
+---
+
+## Part-3 remaining: 4-monkey-net fair retrain (structural requirement)
+
+4-monkey-net loads ARM (RigidTendonArm26, 6-muscle) checkpoints via a SEPARATE 1259-line
+`motor_zoo_monkey.py` -- a full parallel implementation of all 13 learners, still on the OLD
+imitation objective. This is BOTH a part-1 violation (two definitions per model: motor_zoo point-mass
++ motor_zoo_monkey arm) AND the part-3 blocker (monkey side not on the fair setup).
+
+Root cause: motor_zoo models are point-mass-specific:
+- `RAW=4` hardcoded (arm needs 6 = n_muscles).
+- `muscle_head` = `sigmoid(raw[:, :4])` -- hardcoded 4.
+- `force_head` uses point-mass geometry (obs[:,2:4] fingertip + fixed corner ANCHORS).
+
+Correct fix (unifies part 1 AND enables part-3 monkey retrain -- ONE plant-agnostic definition per
+model used by BOTH notebooks):
+1. RAW := env.n_muscles (muscle-head models) so it adapts to plant (4 point-mass / 6 arm).
+2. muscle_head := sigmoid(raw[:, :env.n_muscles]).
+3. force_head / KINESIS: derive muscle anchors + fingertip index from the effector, not the global
+   point-mass ANCHORS, so the morphological map works on the arm too.
+4. Delete motor_zoo_monkey.py; point 4-monkey-net at motor_zoo (+ plausible_learners) on the arm env
+   with motor_core's shared objective.
+5. Retrain the arm models under the fair setup -> save to the monkey MODEL_DIR; 4-monkey-net loads them.
+
+This is a real refactor (touch RAW + both heads + the morphological geometry across 13 models, then
+retrain + verify on the arm) -- a dedicated session, not a low-context patch. 4-train-net + 4-analysis
+are already retrained on the fair setup; this closes the monkey side.
