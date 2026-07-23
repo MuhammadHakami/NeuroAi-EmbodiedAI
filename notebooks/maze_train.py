@@ -129,5 +129,42 @@ def main():
     print(f"\nsaved {len([t for t in order if t in prior])} models -> {MODEL_DIR}\nresults -> {RESULTS_JSON}", flush=True)
 
 
+def main_ray(budget=BUDGET, gpu_frac=0.5):
+    """Train all models as PARALLEL INSTANCES across both GPUs (instance-level parallelism -- each
+    model is one Ray task on a GPU fraction; the models are small so several pack per card). Same
+    fair setup and same per-model tuned hyperparameters as the sequential main(); ~3x faster."""
+    import ray
+    only = [t for t in os.environ.get("MZ_ONLY", "").split(",") if t]
+    tags = [t for _, t in LEARNERS if (not only or t in only)]
+    if ray.is_initialized(): ray.shutdown()
+    ray.init(num_gpus=2, ignore_reinit_error=True, log_to_driver=False, include_dashboard=False)
+    print(f"parallel training {len(tags)} model(s) across 2 GPUs (~{int(1/gpu_frac)} per card) | "
+          f"budget {budget:,} | split {len(TRAIN_IDX)}/{len(VAL_IDX)}/{len(TEST_IDX)}\n", flush=True)
+    NB = os.path.dirname(os.path.abspath(__file__))
+
+    @ray.remote(num_gpus=gpu_frac, max_retries=0)
+    def _one(tag):
+        import sys
+        sys.path.insert(0, NB); sys.path.insert(0, os.path.join(NB, "..", "nlb_tools"))
+        import maze_train as MT                                   # re-imports -> builds its envs on THIS GPU
+        cls = next(c for c, t in MT.LEARNERS if t == tag)
+        return MT.run_one(cls, tag, budget=budget)
+
+    futs = {tag: _one.remote(tag) for tag in tags}
+    order = [t for _, t in LEARNERS]
+    prior = {r["tag"]: r for r in json.load(open(RESULTS_JSON))} if (only and os.path.exists(RESULTS_JSON)) else {}
+    for tag, fut in futs.items():
+        try:
+            r = ray.get(fut); prior[tag] = r
+            print(f"{r['name']:42s} err={r['err_cm']:5.1f}cm reach5={r['reach5']:4.0f}% "
+                  f"time={r['reach_time_ms']:5.0f}ms move={r['path_cm']:5.1f}cm wall={r['in_barrier_pct']:4.1f}% "
+                  f"(TEST) val_err={r['val_err_cm']:.1f}cm", flush=True)
+        except Exception as e:
+            print(f"{tag:14s} FAILED: {type(e).__name__}: {e}", flush=True)
+        json.dump([prior[t] for t in order if t in prior], open(RESULTS_JSON, "w"), indent=1)
+    ray.shutdown()
+    print(f"\nsaved {len([t for t in order if t in prior])} models (parallel) -> {MODEL_DIR}\nresults -> {RESULTS_JSON}", flush=True)
+
+
 if __name__ == "__main__":
-    main()
+    (main_ray() if os.environ.get("MZ_RAY") else main())
