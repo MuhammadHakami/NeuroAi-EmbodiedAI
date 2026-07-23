@@ -31,6 +31,13 @@ BUDGET = int(os.environ.get("MZ_BUDGET", 20_000))
 DEVICE = mz.DEVICE
 REACH_CM = 3.0                                   # "reached" threshold for the reach-TIME metric
 
+# per-model tuned hyperparameters from the Ray fine-tuning (4-tuning-net). If present, each plausible
+# model is (re)built with ITS best hyperparameters (learning rate + rule constant + reflex gains),
+# tuned on VAL, to maximise accuracy; the gradient models keep their robust defaults.
+import maze_hp
+BEST_HP_JSON = os.path.join(REPO, "save_monkey", "maze_best_hp.json")
+BEST_HP = json.load(open(BEST_HP_JSON)) if os.path.exists(BEST_HP_JSON) else {}
+
 # FIXED 60/20/20 split of the 108 puzzles (seeded). Train on `train` ONLY; track the learning
 # curve on `val`; report the final scorecard on `test`, which is NEVER seen during training.
 TRAIN_IDX, VAL_IDX, TEST_IDX = maze_env.maze_split(seed=0)
@@ -83,7 +90,10 @@ def maze_metrics(L, env, batch=512, seed=mz.EVAL_SEED):
 
 def run_one(cls, tag, budget=BUDGET, bs=32):
     th.manual_seed(0); np.random.seed(0)
-    L = cls(MZ_TRAIN)
+    if tag in BEST_HP:
+        L = maze_hp.build(tag, BEST_HP[tag], MZ_TRAIN)     # tuned hyperparameters (VAL-selected)
+    else:
+        L = cls(MZ_TRAIN)                                  # robust default (gradient / deep-RL)
     pr = mz.Probe(MZ_VAL, every_eps=max(1, budget // 40), budget=budget)   # learning curve on VAL (never test)
     t0 = time.perf_counter(); L.fit(MZ_TRAIN, budget, pr, batch=bs); train_s = time.perf_counter() - t0
     m = maze_metrics(L, MZ_TEST)                                            # final scorecard on HELD-OUT test
