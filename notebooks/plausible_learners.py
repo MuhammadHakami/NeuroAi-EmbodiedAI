@@ -35,6 +35,8 @@ HEAD = None; OBS_NORM = None; OPCOUNTER = None
 KIND = "local-plausible"
 RES_NR = 4096
 REFLEX_KP, REFLEX_KD = 1.0, 0.15   # spinal PD reflex: sweep optimum (5.2cm/59% alone)
+REFLEX_AVOID = 8.0   # maze: gain on the outward obstacle-avoidance force added to the reflex target
+                     # (a flexor-withdrawal reflex -- pushes the endpoint out of a barrier it entered)
 SPINDLE_KD = 0.15   # Ia velocity sensitivity (s). See project_error.
 REFLEX_GAIN = 4.0   # sensory error (m) -> endpoint-force command. The monosynaptic stretch
                     # reflex's loop gain: the one constant a local rule must assume in place
@@ -120,7 +122,13 @@ class _ResBase(nn.Module):
         NOTE this introduces NO demonstrator: no trained network supplies the target, and
         the constants are the same two numbers for all six rules.
         """
-        tgt = th.cat([REFLEX_KP * c.err - REFLEX_KD * c.vel, c.cmd[:, 2:]], -1)
+        reach = REFLEX_KP * c.err - REFLEX_KD * c.vel
+        # maze: a spinal obstacle-avoidance (flexor-withdrawal) reflex adds an outward push whenever
+        # the endpoint has entered a barrier -- so the SAME reflex target now says "reach the goal AND
+        # get out of walls", from task-space signals only (no plant Jacobian, no privileged state).
+        if getattr(c, "collision_force", None) is not None:
+            reach = reach + REFLEX_AVOID * c.collision_force
+        tgt = th.cat([reach, c.cmd[:, 2:]], -1)
         return tgt - c.cmd
 
     # the shared core asks every learner for its action head; ours is the module-level head

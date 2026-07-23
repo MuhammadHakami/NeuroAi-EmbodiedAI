@@ -116,6 +116,20 @@ def collision_penalty(pos, barriers, mask):
     return (pen * mask).sum(-1)
 
 
+def collision_force(pos, barriers, mask):
+    """Outward push = -gradient of the penetration penalty w.r.t. `pos`. Zero outside every barrier;
+    a point INSIDE a barrier feels a force toward the nearest exit -- the flexor-withdrawal /
+    obstacle-avoidance reflex the monkey's spinal cord also has. Same shapes as collision_penalty;
+    returns (B, 2). Analytic (no autograd) so a local rule can use it under no_grad, exactly like
+    the reach reflex. d(px*py)/dx = -sign(dx)*[px>0]*py, so the OUTWARD force is +sign(dx)*[px>0]*py."""
+    o = pos[:, None, :] - barriers[..., :2]                       # (B,K,2) signed offset from centre
+    px = th.relu(barriers[..., 2] - o[..., 0].abs())              # x-penetration (>0 only inside)
+    py = th.relu(barriers[..., 3] - o[..., 1].abs())              # y-penetration
+    fx = (th.sign(o[..., 0]) * (px > 0).float() * py * mask).sum(-1)
+    fy = (th.sign(o[..., 1]) * (py > 0).float() * px * mask).sum(-1)
+    return th.stack([fx, fy], -1)
+
+
 class MazeReach:
     """Mixin that turns any ReachEnv subclass into the monkey's maze task.
 
@@ -166,15 +180,33 @@ class MazeReach:
             return th.zeros(pos.shape[0], device=pos.device)
         return collision_penalty(pos, self._bar[self._cond], self._msk[self._cond])
 
+    def maze_collision_force(self, pos):
+        """Outward obstacle-avoidance force at `pos` (B,2), for the spinal avoidance reflex."""
+        if self._cond is None:
+            return th.zeros_like(pos)
+        return collision_force(pos, self._bar[self._cond], self._msk[self._cond])
+
+
+# The monkey's maze objective, applied IDENTICALLY to every model (fairness by construction):
+# reach the cued target FAST + with LEAST movement + LEAST endpoint error + WITHOUT hitting barriers.
+#   step cost  =  |fingertip - goal|_1            (least cm; summed over the reach => rewards SPEED,
+#                                                  since reaching sooner accrues less error)
+#              +  collide_w * barrier_penetration  (avoid the barriers -- the monkey's collision)
+#              +  effort_w  * mean(action^2)        (least movement / least muscle drive)
+# It is one differentiable scalar, so a gradient rule descends it; a plain scalar, so a local rule
+# consumes it through the same reflex; and env reward = -step_cost, so model-free RL optimises it too.
+EFFORT_W = 0.05        # "least movement" weight (small: position error must still dominate so RL reaches)
 
 def make_maze_env(dev, mass_set=None, conditions=None, collide_w=6.0, scale=0.85,
-                  random_cond=True, **kw):
-    """A MotorNet env running the monkey's 108 maze puzzles.
+                  random_cond=True, effort_w=EFFORT_W, **kw):
+    """A MotorNet env running the monkey's 108 maze puzzles, on the monkey's own objective:
+    reach the target fast, with the least movement and least endpoint error, WITHOUT hitting the
+    barriers -- the same cursor-via-muscle task (obs = goal + proprioception, action = muscles).
 
-    Subclasses the project's MassReach (which itself subclasses MotorNet's env -- MotorNet is
-    never edited). On reset it draws a maze condition and OVERRIDES the goal with that maze's
-    active target; reward becomes MotorNet's L1 position error MINUS the barrier penalty, so
-    the maze cost enters the one shared objective every model already optimises.
+    Subclasses the project's MassReach (MotorNet is never edited). On reset it draws a maze
+    condition and OVERRIDES the goal with that maze's active target; the reward is the negative of
+    the composite maze cost above, so the maze objective is the ONE shared objective every model
+    optimises -- fair, identical input (obs) and output (muscles) for all 13.
     """
     import motor_zoo as mz
     cfg = extract_configs()
@@ -199,7 +231,8 @@ def make_maze_env(dev, mass_set=None, conditions=None, collide_w=6.0, scale=0.85
         def reward(self, action):
             ft = self.states["fingertip"]
             pos = -th.sum(th.abs(self.goal[..., :ft.shape[-1]] - ft), dim=-1, keepdim=True)
-            return pos - self.collide_w * self.maze_collision(ft)[:, None]
+            effort = action.pow(2).mean(-1, keepdim=True)
+            return pos - self.collide_w * self.maze_collision(ft)[:, None] - effort_w * effort
 
     env = _MazeEnv(effector=mz.mn.effector.ReluPointMass24(), max_ep_duration=1.0,
                    mass_set=mass_set, **kw)

@@ -1665,7 +1665,10 @@ class Dendritron(nn.Module, Learner):
                     # MotorNet task error routed through the fixed spinal PD reflex. No teacher.
                     ft = env.states["fingertip"]; vel = env.states["cartesian"][..., 2:4]
                     e_task = env.goal[..., :ft.shape[-1]] - ft
-                    tgt = th.cat([_pl.REFLEX_KP * e_task - _pl.REFLEX_KD * vel, out[:, 2:]], -1)
+                    reach = _pl.REFLEX_KP * e_task - _pl.REFLEX_KD * vel
+                    if hasattr(env, "maze_collision_force"):          # maze: same obstacle-avoidance reflex
+                        reach = reach + _pl.REFLEX_AVOID * env.maze_collision_force(ft)
+                    tgt = th.cat([reach, out[:, 2:]], -1)
                     err = tgt - out
                     if not self.base_frozen:
                         self.W0 += self.lr / n * ((err[:, :, None] * z[:, None, :]).mean(0) - self.lam * self.W0)

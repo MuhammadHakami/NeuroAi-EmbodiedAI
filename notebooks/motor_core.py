@@ -70,6 +70,8 @@ class StepCtx:
     batch: int
     reward: Optional[th.Tensor] = None
     learner: Any = None
+    collision_force: Optional[th.Tensor] = None    # maze only: outward obstacle-avoidance force (B,2), for the reflex
+    maze_cost: Optional[th.Tensor] = None          # maze only: the composite step cost (reach + collision + effort)
 
     @property
     def err(self) -> th.Tensor:
@@ -97,10 +99,11 @@ class StepCtx:
         return p(self) if p is not None else self.err
 
     def loss(self) -> th.Tensor:
-        """MotorNet's exact training loss: L1 on fingertip position.
-
-            l1(x, y) = mean(sum(|x - y|, dim=-1))      (MotorNet examples/4-train-net.ipynb)
-        """
+        """The training loss for ONE step. Free reach: MotorNet's exact L1 on fingertip position,
+        l1(x,y) = mean(sum(|x-y|,-1)). Maze: the composite maze cost (reach + barrier + effort),
+        so a gradient rule descends the SAME objective model-free RL gets from the env reward."""
+        if self.maze_cost is not None:
+            return self.maze_cost
         return th.mean(th.sum(th.abs(self.err), dim=-1))
 
 
@@ -151,9 +154,16 @@ def train(learner, env, budget, probe, batch=256, teacher=None, grad=False):
                 fingertip = info["states"]["fingertip"]
                 goal = info["goal"][..., :fingertip.shape[-1]]
                 vel = info["states"]["cartesian"][..., 2:4]
+                # Maze task: the objective is the env's composite reward (reach + barrier + effort),
+                # so a gradient rule descends -reward (identical to what model-free RL maximises), and
+                # the plausible reflex gets the analytic outward avoidance force. Determined by the ENV,
+                # so all 13 rules get the SAME maze objective with no per-model code path.
+                is_maze = hasattr(env, "maze_collision_force")
+                cforce = env.maze_collision_force(fingertip) if is_maze else None
+                mcost = (-r.mean()) if is_maze else None
                 ctx = StepCtx(obs=obs, raw=action, cmd=raw, target=goal, pos=fingertip, vel=vel, aux=aux,
                               state=state, t=t, n=n, batch=batch, reward=r,
-                              learner=learner)
+                              learner=learner, collision_force=cforce, maze_cost=mcost)
                 learner.on_step(ctx)                                 # <-- the ONLY per-rule difference
                 obs = nobs if grad else nobs.detach()
                 # A rule whose identity is TRUNCATED backprop (SHAC's short horizon) declares
