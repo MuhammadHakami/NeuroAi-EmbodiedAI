@@ -31,8 +31,12 @@ BUDGET = int(os.environ.get("MZ_BUDGET", 20_000))
 DEVICE = mz.DEVICE
 REACH_CM = 3.0                                   # "reached" threshold for the reach-TIME metric
 
-MZ_TRAIN = maze_env.make_maze_env(DEVICE)                       # random conditions (training)
-MZ_EVAL = maze_env.make_maze_env(DEVICE, random_cond=False)    # tile all 108 (held-out eval)
+# FIXED 60/20/20 split of the 108 puzzles (seeded). Train on `train` ONLY; track the learning
+# curve on `val`; report the final scorecard on `test`, which is NEVER seen during training.
+TRAIN_IDX, VAL_IDX, TEST_IDX = maze_env.maze_split(seed=0)
+MZ_TRAIN = maze_env.make_maze_env(DEVICE, conditions=TRAIN_IDX, random_cond=True)    # 60% train
+MZ_VAL   = maze_env.make_maze_env(DEVICE, conditions=VAL_IDX,  random_cond=False)    # 20% val  (curve + tuning)
+MZ_TEST  = maze_env.make_maze_env(DEVICE, conditions=TEST_IDX, random_cond=False)    # 20% test (held out)
 pl.configure(mz.morph_head(MZ_TRAIN), mz.obs_norm, mz.OpCounter)
 
 LEARNERS = [
@@ -45,8 +49,9 @@ LEARNERS = [
 
 
 @th.no_grad()
-def maze_metrics(L, batch=512, seed=mz.EVAL_SEED):
-    """Roll a trained learner over the 108 held-out mazes; measure the monkey's own scorecard."""
+def maze_metrics(L, env, batch=512, seed=mz.EVAL_SEED):
+    """Roll a trained learner over `env`'s mazes; measure the monkey's own scorecard."""
+    MZ_EVAL = env
     obs, info = MZ_EVAL.reset(seed=seed, options={"batch_size": batch, "deterministic": True})
     st = L.init_state(batch); n = int(MZ_EVAL.max_ep_duration / MZ_EVAL.dt); dt_ms = MZ_EVAL.dt * 1000.0
     prev = MZ_EVAL.states["fingertip"].clone()
@@ -79,24 +84,26 @@ def maze_metrics(L, batch=512, seed=mz.EVAL_SEED):
 def run_one(cls, tag, budget=BUDGET, bs=32):
     th.manual_seed(0); np.random.seed(0)
     L = cls(MZ_TRAIN)
-    pr = mz.Probe(MZ_EVAL, every_eps=max(1, budget // 40), budget=budget)
+    pr = mz.Probe(MZ_VAL, every_eps=max(1, budget // 40), budget=budget)   # learning curve on VAL (never test)
     t0 = time.perf_counter(); L.fit(MZ_TRAIN, budget, pr, batch=bs); train_s = time.perf_counter() - t0
-    m = maze_metrics(L)
+    m = maze_metrics(L, MZ_TEST)                                            # final scorecard on HELD-OUT test
+    val_err = maze_metrics(L, MZ_VAL)["err_cm"]                             # val error (matches the tuning objective)
     os.makedirs(MODEL_DIR, exist_ok=True)
     if isinstance(L, th.nn.Module):
         th.save(L.state_dict(), os.path.join(MODEL_DIR, f"{tag}.pt"))
     return dict(name=L.name, cite=L.cite, kind=L.kind, wins=getattr(L, "wins", ""), tag=tag,
-                curve=pr.curve, params=mz.count_params(L)[0], train_s=train_s, **m)
+                curve=pr.curve, val_err_cm=val_err, params=mz.count_params(L)[0], train_s=train_s, **m)
 
 
 def main():
     only = [t for t in os.environ.get("MZ_ONLY", "").split(",") if t]
     learners = [(c, t) for c, t in LEARNERS if (not only or t in only)]
     print(f"device {DEVICE} | budget {BUDGET:,} eps | maze obs {MZ_TRAIN.observation_space.shape[0]} "
-          f"act {MZ_TRAIN.action_space.shape[0]} | 108 MC-Maze puzzles WITH collision | {len(learners)} model(s)\n",
+          f"act {MZ_TRAIN.action_space.shape[0]} | 108 MC-Maze WITH collision, split "
+          f"{len(TRAIN_IDX)}/{len(VAL_IDX)}/{len(TEST_IDX)} train/val/TEST (seed 0) | {len(learners)} model(s)\n",
           flush=True)
     rand = mz.RandomFloor(MZ_TRAIN.action_space.shape[0])
-    print(f"random-floor: err={maze_metrics(rand)['err_cm']:.1f}cm\n", flush=True)
+    print(f"random-floor (test): err={maze_metrics(rand, MZ_TEST)['err_cm']:.1f}cm\n", flush=True)
     order = [t for _, t in LEARNERS]
     prior = {r["tag"]: r for r in json.load(open(RESULTS_JSON))} if (only and os.path.exists(RESULTS_JSON)) else {}
     for cls, tag in learners:

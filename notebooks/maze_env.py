@@ -102,6 +102,22 @@ def extract_configs(nwb_path=NWB, cache=CACHE, force=False):
     return out
 
 
+def maze_split(seed=0, frac_train=0.6, frac_val=0.2, n=None):
+    """Deterministic 60/20/20 split of the 108 MC-Maze conditions -> (train, val, test) index arrays.
+
+    FIXED by `seed`, so the same puzzles are always used for training, for hyperparameter tuning
+    (val, in 4-tuning-net), and for the held-out TEST report. The TEST puzzles are NEVER seen during
+    training or tuning -- the model is fit on `train`, tuned against `val`, and reported on `test`.
+    Returns integer index arrays into the 108 conditions (indices are what make_maze_env's
+    `conditions=` expects)."""
+    if n is None:
+        n = len(extract_configs()["targets"])                    # 108
+    g = np.random.default_rng(int(seed))
+    perm = g.permutation(n)
+    n_tr = int(round(frac_train * n)); n_va = int(round(frac_val * n))
+    return perm[:n_tr], perm[n_tr:n_tr + n_va], perm[n_tr + n_va:]
+
+
 def collision_penalty(pos, barriers, mask):
     """Summed penetration depth of `pos` into each barrier rectangle. 0 outside every barrier.
 
